@@ -77,7 +77,7 @@ secrets before distributing the app widely.
 
 ## Releases
 
-Pushing a tag `vX.Y.Z` runs `.github/workflows/build.yml`: engine tests,
+Pushing a tag `vX.Y.Z` (or running the workflow manually with a `release_tag` input) runs `.github/workflows/build.yml`: engine tests,
 server tests, unit tests, release APK, and a GitHub Release with the APK and
 SHA-256 checksums.
 
