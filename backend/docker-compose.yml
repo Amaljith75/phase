@@ -1,0 +1,14 @@
+services:
+  phase-server:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      # Set a token if the server is reachable beyond your own network.
+      PHASE_API_TOKEN: ${PHASE_API_TOKEN:-}
+    volumes:
+      - phase-data:/data
+      - phase-models:/models
+    restart: unless-stopped
+volumes:
+  phase-data:
+  phase-models:

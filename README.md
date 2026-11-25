@@ -1,0 +1,90 @@
+# Phase — a tactile stem instrument for Android
+
+Import any song on your phone, let AI split it into **vocals · drums · bass ·
+other**, then remix it live with swipes: isolate the vocal, drop the drums,
+push the bass, throw reverb on the voice, follow synced lyrics and record
+the take.
+
+```
+ ┌──────────┬──────────┐
+ │  VOCALS  │  DRUMS   │   swipe ↑↓  volume (haptic detent per LED)
+ │  ▮▮▮▮▮▯  │  ▮▮▮▯▯▯  │   swipe →   solo        swipe ←  mute
+ ├────── ( ▶ ) ────────┤   double-tap mute       long-press  effects
+ │  BASS    │  OTHER   │   all gestures remappable in Settings
+ │  ▮▮▮▮▮▮  │  ▮▮▮▮▯▯  │
+ └──────────┴──────────┘
+```
+
+## What's in the box
+
+| Path | What |
+|---|---|
+| `android/` | The app: Kotlin + Jetpack Compose UI, native C++ audio engine on Oboe/AAudio |
+| `android/app/src/main/cpp/engine/` | Portable real-time engine: sample-locked stems, effects, recorder, offline exporter |
+| `android/engine-tests/` | Host-side engine test suite (sync, clicks, FX stability, export == playback) |
+| `backend/` | AI separation server: FastAPI + Demucs (Docker or plain Python) |
+| `docs/ARCHITECTURE.md` | Architecture, sync model, platform limits, roadmap |
+
+## Features
+
+* **Import** MP3 · WAV · FLAC · M4A · AAC · OGG via the system picker (multi-select); title/artist/artwork from tags. Files are copied into app-private storage.
+* **AI stem separation** with Demucs (HT-Demucs, fine-tuned, v3, MDX) on your own server; progress notification, survives backgrounding, cached forever on the phone.
+* **Native engine**: one shared playhead for all stems (no drift), click-free seek/loop/mute/solo, varispeed 0.5–2× with optional keep-pitch, reverse playback, A/B loop.
+* **Effects per stem and on master**: reverb, delay, ping-pong echo, low/high-pass, distortion, chorus, pitch shift, 3-band EQ, volume, pan — all real-time, with animated knobs.
+* **One-tap modes**: all · no vocals (instrumental/karaoke) · acapella · rhythm.
+* **Lyrics**: synced LRC view with highlighted, auto-scrolling lines, tap-to-seek, LRC import, raw editor, tap-to-sync timestamps, offset nudging, online lookup (LRCLIB).
+* **Record** the live master output (WAV/MP3) and **export** the mix offline (WAV/MP3) through the identical DSP path; share or save to Music.
+* **Projects & presets**: every mix autosaves per track; save named projects and reusable presets.
+* **Library**: recent, imported, separated, favourites, search, delete, stem-cache management.
+* BPM detection, tap tempo, waveform scrubber, stem colour customisation, haptics, background playback with lock-screen controls.
+
+## Install the app
+
+Download the APK from the [Releases](../../releases) page and sideload it
+(Android 8.0+). Then set up a separation server (below) — until then songs
+play as full mixes with master effects.
+
+## Set up AI separation
+
+```bash
+cd backend && docker compose up -d --build
+```
+or see `backend/README.md` for plain Python / GPU setup. In the app open
+**Settings → AI separation**, enter `http://<computer-ip>:8000`, tap
+**Save & test**. New imports are separated automatically; existing tracks
+via **⋮ → Separate stems**.
+
+## Build from source
+
+Requirements: JDK 17+, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1.
+
+```bash
+cd android
+./gradlew :app:assembleRelease      # → app/build/outputs/apk/release/app-release.apk
+./gradlew :app:testDebugUnitTest    # JVM unit tests
+cmake -S engine-tests -B ../build/et && cmake --build ../build/et && ../build/et/engine_test
+```
+
+### Signing
+
+Release builds use `PHASE_KEYSTORE_FILE` / `PHASE_KEYSTORE_PASSWORD` /
+`PHASE_KEY_ALIAS` / `PHASE_KEY_PASSWORD` when set (CI reads them from the
+`PHASE_KEYSTORE_BASE64` etc. repository secrets). Without them the build
+falls back to `android/keystore/phase-sideload.jks`, a **public** key whose
+password is in the build script. It exists so that sideloaded releases can
+upgrade each other; because anyone can sign with it, configure your own
+secrets before distributing the app widely.
+
+## Releases
+
+Pushing a tag `vX.Y.Z` runs `.github/workflows/build.yml`: engine tests,
+server tests, unit tests, release APK, and a GitHub Release with the APK and
+SHA-256 checksums.
+
+## Licences
+
+No licence has been chosen for the Phase code yet — add a `LICENSE` file
+before distributing. Third-party components keep their own licences: shine
+MP3 encoder (LGPL-2, full source in `android/app/src/main/cpp/third_party/shine`),
+Oboe (Apache-2.0, via Maven), Demucs (MIT, used by the server; model weights
+are downloaded from Meta).
