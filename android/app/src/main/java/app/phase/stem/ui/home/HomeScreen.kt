@@ -85,15 +85,15 @@ fun HomeScreen(
             }
         }
         item { ImportDial(onImport) }
-        if (settings.serverUrl.isBlank()) item {
+        if (!settings.canSeparate) item {
             GlassPanel(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), glow = Color(0xFFFFB547)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.AutoAwesome, null, tint = Color(0xFFFFB547))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Connect a separation server", style = PhaseType.body, color = PhaseColors.Chrome)
+                        Text("Server mode needs an address", style = PhaseType.body, color = PhaseColors.Chrome)
                         Text(
-                            "AI stem separation (Demucs) runs on a Phase server — your own PC or a cloud box. Imported songs still play as full mixes.",
+                            "You chose server separation but no server is set. Add one, or switch back to on-device AI in Settings.",
                             style = PhaseType.labelSmall, color = PhaseColors.Steel,
                         )
                     }

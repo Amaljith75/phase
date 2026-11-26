@@ -1,7 +1,7 @@
 # Phase — a tactile stem instrument for Android
 
-Import any song on your phone, let AI split it into **vocals · drums · bass ·
-other**, then remix it live with swipes: isolate the vocal, drop the drums,
+Import any song on your phone, let **on-device AI** split it into **vocals · drums · bass ·
+other** (offline, nothing uploaded), then remix it live with swipes: isolate the vocal, drop the drums,
 push the bass, throw reverb on the voice, follow synced lyrics and record
 the take.
 
@@ -22,13 +22,16 @@ the take.
 | `android/` | The app: Kotlin + Jetpack Compose UI, native C++ audio engine on Oboe/AAudio |
 | `android/app/src/main/cpp/engine/` | Portable real-time engine: sample-locked stems, effects, recorder, offline exporter |
 | `android/engine-tests/` | Host-side engine test suite (sync, clicks, FX stability, export == playback) |
-| `backend/` | AI separation server: FastAPI + Demucs (Docker or plain Python) |
+| `android/separation/` | On-device AI pipeline (STFT, chunking, ONNX Runtime), JVM-tested against PyTorch |
+| `tools/model/` | Builds/verifies the bundled HT-Demucs ONNX model |
+| `backend/` | Optional self-hosted separation server (FastAPI + Demucs) |
+| `docs/PLAY_STORE.md` | Publishing checklist; `PRIVACY.md` privacy policy |
 | `docs/ARCHITECTURE.md` | Architecture, sync model, platform limits, roadmap |
 
 ## Features
 
 * **Import** MP3 · WAV · FLAC · M4A · AAC · OGG via the system picker (multi-select); title/artist/artwork from tags. Files are copied into app-private storage.
-* **AI stem separation** with Demucs (HT-Demucs, fine-tuned, v3, MDX) on your own server; progress notification, survives backgrounding, cached forever on the phone.
+* **On-device AI stem separation** with Hybrid Transformer Demucs on ONNX Runtime — no server, no account, works offline; progress notification, survives backgrounding, cached forever. (Optional: offload to your own server.)
 * **Native engine**: one shared playhead for all stems (no drift), click-free seek/loop/mute/solo, varispeed 0.5–2× with optional keep-pitch, reverse playback, A/B loop.
 * **Effects per stem and on master**: reverb, delay, ping-pong echo, low/high-pass, distortion, chorus, pitch shift, 3-band EQ, volume, pan — all real-time, with animated knobs.
 * **One-tap modes**: all · no vocals (instrumental/karaoke) · acapella · rhythm.
@@ -40,25 +43,19 @@ the take.
 
 ## Install the app
 
-Download the APK from the [Releases](../../releases) page and sideload it
-(Android 8.0+). Then set up a separation server (below) — until then songs
-play as full mixes with master effects.
-
-## Set up AI separation
-
-```bash
-cd backend && docker compose up -d --build
-```
-or see `backend/README.md` for plain Python / GPU setup. In the app open
-**Settings → AI separation**, enter `http://<computer-ip>:8000`, tap
-**Save & test**. New imports are separated automatically; existing tracks
-via **⋮ → Separate stems**.
+Download the APK for your phone from the [Releases](../../releases) page
+(`arm64-v8a` for almost every phone made since 2017) and open it, or publish
+the `.aab` on Google Play (see `docs/PLAY_STORE.md`). Android 8.0+, 4 GB RAM
+or more for AI separation. Import a song and separation starts automatically.
 
 ## Build from source
 
-Requirements: JDK 17+, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1.
+Requirements: JDK 17+, Android SDK 36, NDK 27.2.12479018, CMake 3.22.1,
+and Python 3.10+ with ffmpeg to build the AI model once:
 
 ```bash
+pip install -r tools/model/requirements.txt onnxscript
+tools/model/build_model.sh          # → android/app/src/main/assets/models/htdemucs.onnx
 cd android
 ./gradlew :app:assembleRelease      # → app/build/outputs/apk/release/app-release.apk
 ./gradlew :app:testDebugUnitTest    # JVM unit tests

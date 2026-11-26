@@ -170,13 +170,13 @@ private fun Label(text: String) {
 private fun TrackMenu(t: TrackEntity, onDelete: () -> Unit) {
     val graph = LocalGraph.current
     var open by remember { mutableStateOf(false) }
-    val hasServer = graph.settings.current.serverUrl.isNotBlank()
+    val hasServer = graph.settings.current.canSeparate
     Box {
         IconButton(onClick = { open = true }) { Icon(Icons.Rounded.MoreVert, "More", tint = PhaseColors.Steel) }
         DropdownMenu(open, onDismissRequest = { open = false }) {
             when (t.status) {
                 TrackStatus.READY, TrackStatus.FAILED -> DropdownMenuItem(
-                    text = { Text(if (hasServer) "Separate stems" else "Separate stems (set server first)") }, enabled = hasServer,
+                    text = { Text(if (hasServer) "Separate stems (AI)" else "Separate stems (set server first)") }, enabled = hasServer,
                     onClick = { open = false; graph.separate(t.id) },
                 )
                 TrackStatus.QUEUED, TrackStatus.SEPARATING -> DropdownMenuItem(text = { Text("Cancel separation") }, onClick = { open = false; graph.cancelSeparation(t.id) })

@@ -14,6 +14,8 @@ enum class GestureAction(val label: String) {
 }
 
 data class AppSettings(
+    /** "device" (default, offline AI on the phone) or "server". */
+    val separationEngine: String = "device",
     val serverUrl: String = "",
     val serverToken: String = "",
     val separationModel: String = "htdemucs",
@@ -32,6 +34,11 @@ data class AppSettings(
     val onlineLyrics: Boolean = true,
     val keepScreenOn: Boolean = true,
 ) {
+    val onDevice: Boolean get() = separationEngine != "server"
+
+    /** True when importing can start separation without user setup. */
+    val canSeparate: Boolean get() = onDevice || serverUrl.isNotBlank()
+
     companion object {
         val DEFAULT_STEM_COLORS = listOf(0xFFFFB547, 0xFFFF4D5E, 0xFF8B6CFF, 0xFF3EE6E0)
         val PALETTE = listOf(
@@ -59,6 +66,7 @@ class SettingsStore(context: Context) {
         fun gesture(key: String, def: GestureAction) =
             prefs.getString(key, null)?.let { runCatching { GestureAction.valueOf(it) }.getOrNull() } ?: def
         return AppSettings(
+            separationEngine = prefs.getString("separationEngine", d.separationEngine)!!,
             serverUrl = prefs.getString("serverUrl", d.serverUrl)!!,
             serverToken = prefs.getString("serverToken", d.serverToken)!!,
             separationModel = prefs.getString("separationModel", d.separationModel)!!,
@@ -82,6 +90,7 @@ class SettingsStore(context: Context) {
 
     private fun save(s: AppSettings) {
         prefs.edit()
+            .putString("separationEngine", s.separationEngine)
             .putString("serverUrl", s.serverUrl.trim())
             .putString("serverToken", s.serverToken.trim())
             .putString("separationModel", s.separationModel)

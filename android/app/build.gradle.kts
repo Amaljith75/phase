@@ -13,22 +13,28 @@ val ksPass = System.getenv("PHASE_KEYSTORE_PASSWORD") ?: "phase-sideload"
 val ksAlias = System.getenv("PHASE_KEY_ALIAS") ?: "phase"
 val ksKeyPass = System.getenv("PHASE_KEY_PASSWORD") ?: ksPass
 
+val phaseAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+val abiSplits = (findProperty("abiSplits") as String?)?.toBoolean() == true
+
 android {
     namespace = "app.phase.stem"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "app.phase.stem"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = (System.getenv("PHASE_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("PHASE_VERSION_NAME") ?: "0.1.0"
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        // `-PabiSplits=true` builds one APK per ABI (for direct downloads);
+        // otherwise ABIs are filtered here and the AAB splits them for Play.
+        if (!abiSplits) ndk { abiFilters += phaseAbis }
         externalNativeBuild {
             cmake {
                 cppFlags += listOf("-std=c++17", "-O3", "-ffast-math", "-fno-finite-math-only")
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                // 16 KB page-size compatible native libs (required by Google Play).
+                arguments += listOf("-DANDROID_STL=c++_shared", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
             }
         }
     }
@@ -75,6 +81,25 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        jniLibs.useLegacyPackaging = false // uncompressed, 16 KB aligned
+    }
+
+    // The AI model is memory-mapped straight from the APK, so it must not be compressed.
+    androidResources { noCompress += "onnx" }
+
+    bundle {
+        // Ship the model in the base module; Play serves per-ABI/density splits.
+        language { enableSplit = true }
+        density { enableSplit = true }
+        abi { enableSplit = true }
+    }
+    splits {
+        abi {
+            isEnable = abiSplits
+            reset()
+            include(*phaseAbis.toTypedArray())
+            isUniversalApk = true
+        }
     }
     testOptions { unitTests.isReturnDefaultValues = true }
 }
@@ -110,6 +135,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.oboe:oboe:1.9.3")
+    implementation(project(":separation"))
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.32.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

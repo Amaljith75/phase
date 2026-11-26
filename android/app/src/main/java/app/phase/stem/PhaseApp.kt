@@ -13,6 +13,7 @@ import app.phase.stem.data.TrackStatus
 import app.phase.stem.importer.TrackImporter
 import app.phase.stem.lyrics.LrcLibProvider
 import app.phase.stem.lyrics.LyricsProvider
+import app.phase.stem.separation.OnDeviceSeparationProvider
 import app.phase.stem.separation.RemoteSeparationProvider
 import app.phase.stem.separation.SeparationProvider
 import app.phase.stem.separation.SeparationWorker
@@ -40,13 +41,16 @@ class AppGraph(val app: Application) {
     val importer = TrackImporter(app, db, storage, settings, scope)
     val lyricsProviders: List<LyricsProvider> = listOf(LrcLibProvider(http))
 
-    /** The active separation backend. Swap here to add on-device models. */
+    private val onDeviceProvider by lazy { OnDeviceSeparationProvider(app) }
+
+    /** The active separation backend: on-device by default, a server if chosen. */
     fun separationProvider(): SeparationProvider =
-        RemoteSeparationProvider(settings.current.serverUrl, settings.current.serverToken, http)
+        if (settings.current.onDevice) onDeviceProvider
+        else RemoteSeparationProvider(settings.current.serverUrl, settings.current.serverToken, http)
 
     fun separate(trackId: String) {
         scope.launch {
-            withContext(Dispatchers.IO) { db.tracks().setStatus(trackId, TrackStatus.QUEUED, 0f, "Waiting for server") }
+            withContext(Dispatchers.IO) { db.tracks().setStatus(trackId, TrackStatus.QUEUED, 0f, "Queued for AI separation") }
             SeparationWorker.enqueue(app, trackId)
         }
     }
@@ -71,7 +75,7 @@ class AppGraph(val app: Application) {
     /** Drops cached stems and separates again (e.g. with a different model). */
     fun reseparate(trackId: String) = scope.launch {
         clearStemsNow(trackId)
-        withContext(Dispatchers.IO) { db.tracks().setStatus(trackId, TrackStatus.QUEUED, 0f, "Waiting for server") }
+        withContext(Dispatchers.IO) { db.tracks().setStatus(trackId, TrackStatus.QUEUED, 0f, "Queued for AI separation") }
         SeparationWorker.enqueue(app, trackId)
     }
 

@@ -36,6 +36,7 @@ class RemoteSeparationProvider(
 ) : SeparationProvider {
     override val id = "remote-demucs"
     override val displayName = "Phase server (Demucs)"
+    override val needsNetwork = true
 
     private val base = baseUrl.trim().trimEnd('/')
     private val http = client.newBuilder()
@@ -71,9 +72,12 @@ class RemoteSeparationProvider(
         }
     }
 
-    override suspend fun separate(input: File, model: String, workDir: File, progress: SeparationProgress): Map<Bus, File> =
+    override suspend fun separate(job: SeparationJob, progress: SeparationProgress): SeparationResult =
+        SeparationResult.EncodedFiles(upload(job.sourceFile, job.model, job.workDir, progress))
+
+    private suspend fun upload(input: File, model: String, workDir: File, progress: SeparationProgress): Map<Bus, File> =
         withContext(Dispatchers.IO) {
-            if (base.isBlank()) throw SeparationException("No separation server configured. Add one in Settings → Processing.")
+            if (base.isBlank()) throw SeparationException("No separation server configured. Add one in Settings → AI separation.")
             workDir.mkdirs()
 
             // 1) Upload (0..10%)

@@ -94,10 +94,30 @@ SAF picker → copy to files/tracks/<id>/source.ext → MediaCodec decode → mi
   on-device ONNX Demucs) and `Separator` (server side, e.g. BS-RoFormer via
   `audio-separator`).
 
-**Why not on-device by default:** HT-Demucs is ~80 MB of weights and needs
-several GFLOPs per second of audio; on current phones that means minutes per
-song with heavy heat/battery cost, and its STFT/iSTFT layers do not export
-cleanly to ONNX/NNAPI. The interface is ready for it when that changes.
+### On-device separation (default since 0.2)
+
+```
+mix.pcm (int16, mmap) ─▶ [resample→44.1 kHz] ─▶ normalise ─▶ 7.8 s chunks, 25 % overlap
+   chunk ─▶ STFT (Kotlin, exact torch.stft semantics) ─▶ ONNX Runtime: htdemucs core ─▶
+   iSTFT + time branch ─▶ triangular overlap-add (streaming, O(segment) memory) ─▶ stems/*.pcm
+```
+
+* `tools/model/export_htdemucs_onnx.py` exports everything inside
+  `HTDemucs.forward` between the STFT and the iSTFT (ONNX has no iSTFT op).
+  `compress_fp16_storage.py` stores weights as fp16 (86 MB) while compute
+  stays fp32 (fp16 compute overflows → NaN; int8 audibly hurt drums).
+* The STFT/iSTFT and `demucs.apply` chunking are reimplemented in the
+  pure-Kotlin `:separation` module and unit-tested on the JVM against
+  PyTorch Demucs output: 56–92 dB SNR (numerically the same separation).
+* The model ships uncompressed in the APK and is memory-mapped by ONNX
+  Runtime — no copy, no download, works offline.
+* Cost: ~0.6× real time on 4 desktop cores; on phones expect roughly 1–3×
+  the song length on recent flagships, more on mid-range. Runs in a
+  foreground worker (type `mediaProcessing` on Android 15+), one song at a
+  time, cancellable, needs ≥4 GB RAM.
+
+The self-hosted server remains available as an advanced option
+(Settings → AI separation → Engine).
 
 ## 4. Platform limitations
 

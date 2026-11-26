@@ -1,26 +1,26 @@
-## Phase — first release
+## Phase — on-device AI
 
-A tactile stem-remixing instrument for Android (8.0+).
+**The AI now runs on your phone.** Import a song and it is split into
+vocals · drums · bass · other right on the device — no computer, no server,
+no account, nothing uploaded, works offline.
 
-**Install:** download `Phase-*.apk` below and open it on your phone (allow
-"install unknown apps" for your browser/files app when prompted).
+**Which file?**
+- `Phase-*-arm64-v8a.apk` — almost every Android phone (install this one)
+- `Phase-*-armeabi-v7a.apk` — older 32-bit phones
+- `Phase-*.aab` — for publishing on Google Play
 
-**AI separation** needs the Phase server from this repository
-(`backend/` — one `docker compose up`). Enter its address in
-Settings → AI separation. Without it, songs play as full mixes with master
-effects.
+Android 8.0+. AI separation needs 4 GB RAM or more (6 GB+ recommended) and takes a few minutes
+per song (it keeps running in the background with a progress notification).
 
-### Included
-- Import MP3/WAV/FLAC/M4A/AAC/OGG, library with search, favourites, recents
-- Real AI stem separation (Demucs) with progress notification and caching
-- Native low-latency engine (Oboe/AAudio): sample-locked stems, click-free seek/loop/solo/mute
-- Swipe gestures with haptics (customisable), one-tap acapella / instrumental / rhythm
-- Per-stem + master effects: reverb, delay, echo, filters, distortion, chorus, pitch, EQ, pan
-- Speed 0.5–2× (keep-pitch option), reverse, A/B loop, BPM detection, tap tempo
-- Synced lyrics: LRC import, editor, tap-to-sync, online lookup (LRCLIB)
-- Live recording + offline WAV/MP3 export, share / save to Music, projects & presets
+### New in this release
+- On-device Hybrid Transformer Demucs (ONNX Runtime), verified to produce the
+  same stems as the original PyTorch model
+- Separation runs one song at a time, survives backgrounding, cancellable
+- Play Store ready: targets Android 16 (API 36), 16 KB page-size compatible,
+  App Bundle, privacy policy
+- Landscape/tablet layout for the player
+- The self-hosted server is now an optional advanced setting
 
 ### Known limitations
-- Separation runs on a server you host; on-device separation is on the roadmap.
+- Separation speed depends on the phone (roughly 1–3× the song length on recent phones).
 - Keep-pitch at extreme speeds uses a granular shifter (audible artefacts).
-- Signed with the public sideload key unless the maintainer configures signing secrets.

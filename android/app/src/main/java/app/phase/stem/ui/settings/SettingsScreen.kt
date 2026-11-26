@@ -87,7 +87,7 @@ fun SettingsScreen(contentPadding: PaddingValues) {
             testing = false
         }
     }
-    LaunchedEffect(Unit) { if (s.serverUrl.isNotBlank()) test() }
+    LaunchedEffect(Unit) { if (!s.onDevice && s.serverUrl.isNotBlank()) test() }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
         item {
@@ -96,30 +96,51 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         // -------------------------------------------------- processing
         item {
             Section("AI separation") {
-                Text(
-                    "Stems are separated by a Phase server running Demucs (see backend/ in the repo). Run it on your computer (same Wi-Fi) or any cloud machine, then enter its address.",
-                    style = PhaseType.labelSmall, color = PhaseColors.Steel,
-                )
-                Spacer(Modifier.height(10.dp))
-                Field("Server URL", serverUrl, { serverUrl = it }, "http://192.168.1.20:8000")
-                Spacer(Modifier.height(8.dp))
-                Field("Access token (optional)", token, { token = it }, "", secret = true)
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    HardwareKey(if (testing) "TESTING…" else "SAVE & TEST", active = true, enabled = !testing) { test() }
-                    Spacer(Modifier.width(12.dp))
-                    status?.let { st ->
-                        Led(st.reachable, if (st.reachable) PhaseColors.Ok else PhaseColors.Danger)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            if (st.reachable) "Connected · ${st.device?.uppercase() ?: "?"}" else st.message,
-                            style = PhaseType.labelSmall, color = if (st.reachable) PhaseColors.Ok else PhaseColors.Danger, maxLines = 2,
-                        )
+                Choice(
+                    "Engine", s.separationEngine,
+                    listOf("device" to "On this phone (offline)", "server" to "My own server (advanced)"),
+                ) { v -> store.update { it.copy(separationEngine = v) }; status = null }
+                if (s.onDevice) {
+                    Text(
+                        "Hybrid Transformer Demucs runs on your phone. Nothing is uploaded and no internet is needed. " +
+                            "A 4-minute song takes a few minutes on a recent phone; it keeps going in the background.",
+                        style = PhaseType.labelSmall, color = PhaseColors.Steel,
+                    )
+                    val local by produceState<ProviderStatus?>(null) { value = graph.separationProvider().status() }
+                    local?.let { st ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+                            Led(st.reachable, if (st.reachable) PhaseColors.Ok else PhaseColors.Danger)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (st.reachable) "${st.message} · ${st.device}" else st.message, style = PhaseType.labelSmall,
+                                color = if (st.reachable) PhaseColors.Ok else PhaseColors.Danger)
+                        }
                     }
+                } else {
+                    Text(
+                        "Offload separation to a computer running the Phase server (backend/ in the source repo) — faster with an NVIDIA GPU.",
+                        style = PhaseType.labelSmall, color = PhaseColors.Steel,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Field("Server URL", serverUrl, { serverUrl = it }, "http://192.168.1.20:8000")
+                    Spacer(Modifier.height(8.dp))
+                    Field("Access token (optional)", token, { token = it }, "", secret = true)
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        HardwareKey(if (testing) "TESTING…" else "SAVE & TEST", active = true, enabled = !testing) { test() }
+                        Spacer(Modifier.width(12.dp))
+                        status?.let { st ->
+                            Led(st.reachable, if (st.reachable) PhaseColors.Ok else PhaseColors.Danger)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (st.reachable) "Connected · ${st.device?.uppercase() ?: "?"}" else st.message,
+                                style = PhaseType.labelSmall, color = if (st.reachable) PhaseColors.Ok else PhaseColors.Danger, maxLines = 2,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    val models = status?.models?.takeIf { it.isNotEmpty() }?.map { it.id to it.name } ?: DEFAULT_MODELS
+                    Choice("Server model", s.separationModel, models) { v -> store.update { it.copy(separationModel = v) } }
                 }
-                Spacer(Modifier.height(12.dp))
-                val models = status?.models?.takeIf { it.isNotEmpty() }?.map { it.id to it.name } ?: DEFAULT_MODELS
-                Choice("Model", s.separationModel, models) { v -> store.update { it.copy(separationModel = v) } }
                 Toggle("Separate automatically after import", s.autoSeparate) { v -> store.update { it.copy(autoSeparate = v) } }
             }
         }
@@ -214,7 +235,7 @@ fun SettingsScreen(contentPadding: PaddingValues) {
             Section("About") {
                 Text("Phase ${BuildConfig.VERSION_NAME}", style = PhaseType.body, color = PhaseColors.Chrome)
                 Text(
-                    "Native C++ engine on Oboe/AAudio · AI separation by Demucs (MIT) · MP3 encoding by shine (LGPL-2) · lyrics by LRCLIB.",
+                    "Native C++ engine on Oboe/AAudio · on-device AI: HT-Demucs (Meta AI, MIT) on ONNX Runtime (MIT) · MP3 encoding by shine (LGPL-2) · lyrics by LRCLIB.",
                     style = PhaseType.labelSmall, color = PhaseColors.Steel,
                 )
             }

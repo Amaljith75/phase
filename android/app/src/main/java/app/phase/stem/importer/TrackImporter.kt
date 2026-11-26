@@ -107,13 +107,13 @@ class TrackImporter(
                     scope.launch { db.tracks().setStatus(id, TrackStatus.IMPORTING, f, "Decoding") }
                 }
             }
-            val auto = settings.current.autoSeparate && settings.current.serverUrl.isNotBlank()
+            val auto = settings.current.autoSeparate && settings.current.canSeparate
             db.tracks().get(id)?.let {
                 db.tracks().update(
                     it.copy(
                         durationMs = (result.durationSec * 1000).toLong(), sampleRate = result.sampleRate,
                         status = if (auto) TrackStatus.QUEUED else TrackStatus.READY, progress = 0f,
-                        statusMessage = if (auto) "Waiting for server" else null,
+                        statusMessage = if (auto) "Queued for AI separation" else null,
                     ),
                 )
             }

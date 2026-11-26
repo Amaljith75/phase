@@ -169,12 +169,16 @@ fun PlayerScreen(onBack: () -> Unit, onLyrics: () -> Unit, onEffects: (Bus) -> U
         }
 
         // ---- separation status ---------------------------------------------
-        if (!state.stemMode) SeparationBanner(track.status, track.progress, track.statusMessage, settings.serverUrl.isBlank()) {
+        if (!state.stemMode) SeparationBanner(track.status, track.progress, track.statusMessage, !settings.canSeparate) {
             graph.separate(track.id)
         }
 
         // ---- the instrument --------------------------------------------------
-        Box(Modifier.fillMaxWidth().aspectRatio(1f).padding(vertical = 8.dp)) {
+        // Square instrument that also fits landscape tablets (Android 16
+        // ignores orientation locks on large screens).
+        val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+        val side = minOf(cfg.screenWidthDp - 32, (cfg.screenHeightDp * 0.5f).toInt()).dp
+        Box(Modifier.align(Alignment.CenterHorizontally).size(side).padding(vertical = 8.dp)) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf(listOf(Bus.VOCALS to PadCorner.TopStart, Bus.DRUMS to PadCorner.TopEnd), listOf(Bus.BASS to PadCorner.BottomStart, Bus.OTHER to PadCorner.BottomEnd)).forEach { row ->
                     Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -280,7 +284,7 @@ private fun SeparationBanner(status: TrackStatus, progress: Float, message: Stri
                         status == TrackStatus.FAILED -> message ?: "Tap retry"
                         status == TrackStatus.SEPARATING || status == TrackStatus.QUEUED -> message ?: "Working…"
                         noServer -> "Configure a separation server in Settings"
-                        else -> "Separate into vocals · drums · bass · other"
+                        else -> "On-device AI splits vocals · drums · bass · other — no internet needed"
                     },
                     style = PhaseType.labelSmall, color = if (status == TrackStatus.FAILED) PhaseColors.Danger else PhaseColors.Steel, maxLines = 2,
                 )

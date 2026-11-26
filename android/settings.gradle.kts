@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Phase"
-include(":app")
+include(":app", ":separation")
