@@ -46,6 +46,13 @@ data class MixState(
         if (this@MixState[bus, Param.LPF_FREQ] < 19900f) add("LPF")
         if (kotlin.math.abs(this@MixState[bus, Param.PITCH]) > 0.01f) add("PCH")
         if (listOf(Param.EQ_LOW, Param.EQ_MID, Param.EQ_HIGH).any { p -> kotlin.math.abs(this@MixState[bus, p]) > 0.05f }) add("EQ")
+        if (this@MixState[bus, Param.VOCODER] > 0f) add("ROBOT")
+        if (this@MixState[bus, Param.CRUSH] > 0f) add("CRSH")
+        if (this@MixState[bus, Param.PHASER] > 0f) add("PHSR")
+        if (this@MixState[bus, Param.FLANGER] > 0f) add("FLNG")
+        if (this@MixState[bus, Param.GATE] > 0f) add("GATE")
+        if (this@MixState[bus, Param.PUMP] > 0f) add("PUMP")
+        if (this@MixState[bus, Param.DJ_FILTER] != 0f) add("FILT")
     }
 
     fun toJson(includeTransport: Boolean = true): String {

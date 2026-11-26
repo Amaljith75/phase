@@ -48,7 +48,14 @@ data class PlayerState(
     val exportProgress: Float? = null,
     val error: String? = null,
     val message: String? = null,
-)
+    /** Non-null while a mashup (several songs) is loaded instead of one track. */
+    val mashup: MashupState? = null,
+    val rollBeats: Float = 0f,
+    val vocoderRoot: Int = 48,
+    val vocoderMinor: Boolean = true,
+) {
+    val title: String? get() = mashup?.name ?: track?.title
+}
 
 /**
  * Owns the single native engine session. UI talks only to this class.
@@ -114,7 +121,7 @@ class PlayerController(
                     return@withLock
                 }
                 val current = _state.value
-                if (current.track?.id == trackId && project == null &&
+                if (current.track?.id == trackId && project == null && current.mashup == null &&
                     current.stemMode == (t.isSeparated && storage.hasAllStems(t.id))
                 ) {
                     _state.update { it.copy(track = t) }
@@ -125,7 +132,8 @@ class PlayerController(
                 loadInternal(t, resumeAt = 0.0, play = false)
                 val mixState = project?.let { MixState.fromJson(it.mixJson) } ?: MixState.fromJson(t.lastMixJson) ?: MixState()
                 applyMix(mixState)
-                _state.update { it.copy(projectId = project?.id, projectName = project?.name) }
+                _state.update { it.copy(projectId = project?.id, projectName = project?.name, mashup = null) }
+                applyTempo(t.bpm, t.beatOffset)
                 withContext(Dispatchers.IO) { db.tracks().touchPlayed(t.id, System.currentTimeMillis()) }
             }
         }
@@ -134,7 +142,7 @@ class PlayerController(
     /** Hot-swaps from full mix to stems (after separation) without losing place. */
     fun refreshIfSeparated(t: TrackEntity) {
         val s = _state.value
-        if (s.track?.id != t.id) return
+        if (s.track?.id != t.id || s.mashup != null) return
         _state.update { it.copy(track = t) }
         if (!s.stemMode && t.isSeparated && storage.hasAllStems(t.id)) {
             scope.launch {
@@ -173,12 +181,104 @@ class PlayerController(
         startTicker()
     }
 
+    // ------------------------------------------------------------ mashups ---
+
+    /** Loads several separated songs onto one beat-synced timeline. */
+    fun openMashup(m: MashupState, mixJson: String?) {
+        scope.launch {
+            loadMutex.withLock {
+                val tracks = withContext(Dispatchers.IO) { m.decks.map { db.tracks().get(it.trackId) } }
+                val missing = m.decks.indices.filter { tracks[it]?.let { t -> !(t.isSeparated && storage.hasAllStems(t.id)) } ?: true }
+                if (m.decks.isEmpty() || missing.isNotEmpty()) {
+                    _state.update { it.copy(error = "Every song in a mashup must be separated into stems first") }
+                    return@withLock
+                }
+                saveNow()
+                if (NativeEngine.nIsRecording()) stopRecording()
+                _state.update { it.copy(loading = true, error = null) }
+                ensureOutput()
+                val paths = ArrayList<String>()
+                tracks.forEach { t -> Bus.stems.forEach { b -> paths += storage.stemPcm(t!!.id, b).absolutePath } }
+                val ok = withContext(Dispatchers.IO) {
+                    NativeEngine.nLoadDecks(paths.toTypedArray(), IntArray(tracks.size) { 4 }, IntArray(tracks.size) { tracks[it]!!.stemSampleRate })
+                }
+                if (!ok) {
+                    _state.update { it.copy(loading = false, error = "Could not load mashup: ${NativeEngine.nLastError()}") }
+                    return@withLock
+                }
+                applyDecks(m)
+                applyMix(MixState.fromJson(mixJson) ?: MixState())
+                _peaks.value = withContext(Dispatchers.IO) { AudioDecoder.loadPeaks(storage.mixPeaks(tracks[0]!!.id), 2000) }
+                _state.update {
+                    it.copy(
+                        track = tracks[0], mashup = m, stemMode = true, loading = false, projectId = null, projectName = null,
+                        duration = NativeEngine.nDuration(), position = 0.0, playing = false,
+                    )
+                }
+                startTicker()
+            }
+        }
+    }
+
+    /** Edits the loaded mashup; engine follows immediately, saved shortly after. */
+    fun updateMashup(transform: (MashupState) -> MashupState) {
+        val cur = _state.value.mashup ?: return
+        val m = transform(cur).let { it.copy(decks = it.decks.take(MashupState.MAX_DECKS)) }
+        applyDecks(m)
+        _state.update { it.copy(mashup = m, duration = NativeEngine.nDuration()) }
+        saveSoon()
+    }
+
+    private fun applyDecks(m: MashupState) {
+        m.decks.forEachIndexed { i, d ->
+            Bus.stems.forEach { b -> NativeEngine.nSetDeckParam(i, DeckParam.gain(b), d.stemGains[b.index]) }
+            NativeEngine.nSetDeckParam(i, DeckParam.VOLUME, d.volume)
+            NativeEngine.nSetDeckParam(i, DeckParam.RATIO, m.ratio(d))
+            NativeEngine.nSetDeckParam(i, DeckParam.OFFSET, m.offsetSeconds(i))
+            NativeEngine.nSetDeckParam(i, DeckParam.PITCH, d.pitch)
+            NativeEngine.nSetDeckParam(i, DeckParam.KEYLOCK, if (d.keyLock) 1f else 0f)
+        }
+        applyTempo(m.bpm, m.gridOffset)
+    }
+
+    private fun applyTempo(bpm: Float?, beatOffset: Float) {
+        NativeEngine.nSetGlobal(GlobalParam.BPM, bpm ?: 0f)
+        NativeEngine.nSetGlobal(GlobalParam.BEAT_OFFSET, beatOffset)
+    }
+
+    // -------------------------------------------------------- performance ---
+
+    /** Beat repeat: loops the last [beats] while held (0 releases, slip mode). */
+    fun setRoll(beats: Float) {
+        NativeEngine.nSetGlobal(GlobalParam.ROLL, beats)
+        _state.update { it.copy(rollBeats = beats) }
+    }
+
+    fun tapeStop() = NativeEngine.nBrake()
+
+    fun triggerPad(pad: SoundPad) {
+        ensureOutput()
+        NativeEngine.nTriggerSfx(pad.ordinal)
+    }
+
+    fun setVocoderKey(root: Int, minor: Boolean) {
+        NativeEngine.nSetGlobal(GlobalParam.VOCODER_ROOT, root.toFloat())
+        NativeEngine.nSetGlobal(GlobalParam.VOCODER_MINOR, if (minor) 1f else 0f)
+        _state.update { it.copy(vocoderRoot = root, vocoderMinor = minor) }
+    }
+
+    fun soundMode(mode: SoundMode) {
+        applyMix(mode.apply(_mix.value))
+        saveSoon()
+    }
+
     fun close() {
         saveNow()
         setPlaying(false)
         NativeEngine.nUnload()
         _state.value = PlayerState()
         _peaks.value = FloatArray(0)
+        setRoll(0f)
     }
 
     // ---------------------------------------------------------- transport ---
@@ -325,8 +425,16 @@ class PlayerController(
     }
 
     private fun saveNow() {
-        val id = _state.value.track?.id ?: return
         val json = _mix.value.toJson()
+        _state.value.mashup?.let { m ->
+            scope.launch(Dispatchers.IO) {
+                val now = System.currentTimeMillis()
+                val created = db.mashups().get(m.id)?.createdAt ?: now
+                db.mashups().upsert(app.phase.stem.data.MashupEntity(m.id, m.name, m.toJson(), json, created, now))
+            }
+            return
+        }
+        val id = _state.value.track?.id ?: return
         scope.launch(Dispatchers.IO) {
             db.tracks().saveMix(id, json)
             _state.value.projectId?.let { pid ->
@@ -360,7 +468,7 @@ class PlayerController(
 
     private fun outName(t: TrackEntity, suffix: String, ext: String): File {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        val safe = t.title.replace(Regex("[^A-Za-z0-9 _.-]"), "").trim().take(40).ifBlank { "track" }
+        val safe = (_state.value.mashup?.name ?: t.title).replace(Regex("[^A-Za-z0-9 _.-]"), "").trim().take(40).ifBlank { "track" }
         return File(storage.exportsDir, "$safe - $suffix $stamp.$ext")
     }
 
@@ -393,7 +501,7 @@ class PlayerController(
         scope.launch(Dispatchers.IO) {
             db.exports().insert(
                 ExportEntity(
-                    UUID.randomUUID().toString(), t?.id, "${t?.title ?: "Recording"} · live take", f.absolutePath,
+                    UUID.randomUUID().toString(), t?.id, "${_state.value.title ?: "Recording"} · live take", f.absolutePath,
                     f.extension, "recording", (secs * 1000).toLong(), f.length(), System.currentTimeMillis(),
                 ),
             )
@@ -424,7 +532,8 @@ class PlayerController(
             if (ok) {
                 val durMs = (((if (b > a) b - a else _state.value.duration)) / m.speed * 1000).toLong()
                 entity = ExportEntity(
-                    UUID.randomUUID().toString(), t.id, "${t.title} · ${_state.value.projectName ?: "remix"}",
+                    UUID.randomUUID().toString(), t.id,
+                    _state.value.mashup?.let { "${it.name} · mashup" } ?: "${t.title} · ${_state.value.projectName ?: "remix"}",
                     f.absolutePath, format, "export", durMs, f.length(), System.currentTimeMillis(),
                 )
                 withContext(Dispatchers.IO) { db.exports().insert(entity) }

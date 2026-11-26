@@ -12,9 +12,9 @@ bool exportMix(const StemEngine& live, const ExportOptions& opt, std::atomic<flo
                const std::atomic<bool>& cancel, std::string* err) {
     enableFlushToZero();  // runs on a worker thread
     progress.store(0.f);
-    const auto paths = live.loadedPaths();
+    const auto decks = live.loadedDecks();
     const int rate = live.sourceRate();
-    if (paths.empty()) {
+    if (decks.empty()) {
         if (err) *err = "no track loaded";
         return false;
     }
@@ -25,8 +25,8 @@ bool exportMix(const StemEngine& live, const ExportOptions& opt, std::atomic<flo
 
     auto engine = std::make_unique<StemEngine>();
     engine->prepare(rate);  // render at the source rate: no resampling at speed 1
-    if (!engine->load(paths, rate, err)) return false;
-    for (int b = 0; b < kNumBuses; ++b) engine->bus(b).copyFrom(live.bus(b));
+    if (!engine->loadDecks(decks, err)) return false;
+    engine->copyPerformanceFrom(live);  // stems, decks, FX, beat settings
 
     TransportSnapshot t = live.transport();
     t.loop = false;

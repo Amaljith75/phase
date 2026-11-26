@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <vector>
 
@@ -77,6 +78,11 @@ public:
         float A = std::pow(10.f, db / 40.f), w = 2.f * kPi * f / sr;
         float alpha = std::sin(w) / (2.f * q), c = std::cos(w);
         set(1 + alpha * A, -2 * c, 1 - alpha * A, 1 + alpha / A, -2 * c, 1 - alpha / A);
+    }
+    // Constant 0 dB peak band-pass (RBJ).
+    void setBandpass(float sr, float f, float q) {
+        float w = 2.f * kPi * f / sr, alpha = std::sin(w) / (2.f * q), c = std::cos(w);
+        set(alpha, 0.f, -alpha, 1 + alpha, -2 * c, 1 - alpha);
     }
     void setLowShelf(float sr, float f, float db) {
         float A = std::pow(10.f, db / 40.f), w = 2.f * kPi * f / sr;

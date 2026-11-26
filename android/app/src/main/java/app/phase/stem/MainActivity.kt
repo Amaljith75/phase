@@ -129,6 +129,7 @@ private fun PhaseRoot() {
             composable("home") {
                 HomeScreen(
                     pad, onImport = importAction,
+                    onMashup = { id -> nav.navigate(if (id != null) "mashup?id=$id" else "mashup") },
                     onOpenTrack = { graph.player.open(it.id); nav.navigate("player") },
                     onOpenProject = { p -> graph.player.open(p.trackId, p); nav.navigate("player") },
                     onSettings = { nav.navigateTab("settings") },
@@ -138,6 +139,7 @@ private fun PhaseRoot() {
             composable("library") {
                 LibraryScreen(
                     pad, onImport = importAction,
+                    onMashup = { id, seed -> nav.navigate(if (id != null) "mashup?id=$id" else "mashup?seed=$seed") },
                     onOpenTrack = { graph.player.open(it.id); nav.navigate("player") },
                     onOpenProject = { p -> graph.player.open(p.trackId, p); nav.navigate("player") },
                 )
@@ -148,6 +150,21 @@ private fun PhaseRoot() {
                     onBack = { nav.popBackStack() },
                     onLyrics = { nav.navigate("lyrics") },
                     onEffects = { bus -> nav.navigate("effects/${bus.index}") },
+                    onMashup = { nav.navigate("mashup") },
+                )
+            }
+            composable(
+                "mashup?id={id}&seed={seed}",
+                arguments = listOf(
+                    androidx.navigation.navArgument("id") { nullable = true; defaultValue = null },
+                    androidx.navigation.navArgument("seed") { nullable = true; defaultValue = null },
+                ),
+            ) { entry ->
+                app.phase.stem.ui.mashup.MashupScreen(
+                    mashupId = entry.arguments?.getString("id"),
+                    seedTrackId = entry.arguments?.getString("seed"),
+                    onBack = { nav.popBackStack() },
+                    onOpenPlayer = { if (!nav.popBackStack("player", false)) nav.navigate("player") },
                 )
             }
             composable("lyrics") { LyricsScreen(onBack = { nav.popBackStack() }) }

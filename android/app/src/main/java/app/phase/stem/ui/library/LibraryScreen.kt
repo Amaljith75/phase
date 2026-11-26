@@ -76,11 +76,13 @@ fun LibraryScreen(
     onImport: () -> Unit,
     onOpenTrack: (TrackEntity) -> Unit,
     onOpenProject: (ProjectEntity) -> Unit,
+    onMashup: (id: String?, seedTrackId: String?) -> Unit,
 ) {
     val graph = LocalGraph.current
     val tracks by graph.db.tracks().all().collectAsState(initial = emptyList())
     val projects by graph.db.projects().all().collectAsState(initial = emptyList())
     val exports by graph.db.exports().all().collectAsState(initial = emptyList())
+    val mashups by graph.db.mashups().all().collectAsState(initial = emptyList())
     var tab by remember { mutableStateOf(Tab.ALL) }
     var query by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf<TrackEntity?>(null) }
@@ -134,11 +136,24 @@ fun LibraryScreen(
                     IconButton(onClick = { graph.toggleFavorite(t.id, !t.favorite) }) {
                         Icon(if (t.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, "Favorite", tint = if (t.favorite) PhaseColors.Accent else PhaseColors.Steel)
                     }
-                    TrackMenu(t, onDelete = { confirmDelete = t })
+                    TrackMenu(t, onDelete = { confirmDelete = t }, onMashup = { onMashup(null, t.id) })
                 }
             }
         } else {
-            if (projects.isEmpty() && exports.isEmpty()) item {
+            if (mashups.isNotEmpty()) item { Label("Mashups") }
+            items(mashups.filter { x -> q.isEmpty() || x.name.lowercase().contains(q) }, key = { "x" + it.id }) { x ->
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp).clip(RoundedCornerShape(14.dp)).clickable { onMashup(x.id, null) }.padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.GraphicEq, null, tint = androidx.compose.ui.graphics.Color(0xFFFF4D9A), modifier = Modifier.size(22.dp))
+                    Text(x.name, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
+                    IconButton(onClick = { graph.scope.launch(Dispatchers.IO) { graph.db.mashups().delete(x.id) } }) {
+                        Icon(Icons.Rounded.Close, "Delete mashup", tint = PhaseColors.Steel)
+                    }
+                }
+            }
+            if (projects.isEmpty() && exports.isEmpty() && mashups.isEmpty()) item {
                 EmptyState(Icons.Rounded.GraphicEq, "No mixes yet", "Save a project from the player, record a live take or export a mix.")
             }
             if (projects.isNotEmpty()) item { Label("Projects") }
@@ -167,7 +182,7 @@ private fun Label(text: String) {
 }
 
 @Composable
-private fun TrackMenu(t: TrackEntity, onDelete: () -> Unit) {
+private fun TrackMenu(t: TrackEntity, onDelete: () -> Unit, onMashup: () -> Unit) {
     val graph = LocalGraph.current
     var open by remember { mutableStateOf(false) }
     val hasServer = graph.settings.current.canSeparate
@@ -189,6 +204,7 @@ private fun TrackMenu(t: TrackEntity, onDelete: () -> Unit) {
                 }
                 else -> Unit
             }
+            if (t.isSeparated) DropdownMenuItem(text = { Text("Add to mashup") }, onClick = { open = false; onMashup() })
             DropdownMenuItem(text = { Text("Delete", color = PhaseColors.Danger) }, onClick = { open = false; onDelete() })
         }
     }

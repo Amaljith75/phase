@@ -61,6 +61,16 @@ object NativeEngine {
     external fun nIsRecording(): Boolean
     external fun nRecordingSeconds(): Double
 
+    // ---- mashup decks & performance ----
+    /** [paths] deck by deck; [counts] files per deck (1 or 4); [rates] sample rate per deck. */
+    external fun nLoadDecks(paths: Array<String>, counts: IntArray, rates: IntArray): Boolean
+    external fun nDeckCount(): Int
+    external fun nSetDeckParam(deck: Int, id: Int, value: Float)
+    external fun nSetGlobal(id: Int, value: Float)
+    external fun nTriggerSfx(pad: Int)
+    /** DJ tape stop: brakes to a halt, then pauses. */
+    external fun nBrake()
+
     /** Blocking offline render of the current mix. Call from a worker thread. */
     external fun nExport(path: String, format: String, kbps: Int, startSec: Double, endSec: Double, tail: Boolean): Boolean
     external fun nExportProgress(): Float

@@ -249,6 +249,140 @@ int main() {
         CHECK((long)f.tellg() == 44 + 2 * 48000 * 4, "WAV size exact");
     }
 
+
+    std::printf("[mashup] multiple decks share one timeline\n");
+    {
+        StemEngine e;
+        e.prepare(sr);
+        std::string err;
+        // Deck 0: the four stems; deck 1: the same stems starting 1 s later,
+        // with its vocals muted at deck level.
+        CHECK(e.loadDecks({DeckSpec{stems, sr}, DeckSpec{stems, sr}}, &err), "load 2 decks");
+        CHECK(e.deckCount() == 2, "deck count");
+        e.setDeckParam(1, D_OFFSET, 1.0f);
+        e.setDeckParam(1, D_GAIN_VOCALS, 0.f);
+        CHECK(std::fabs(e.duration() - 21.0) < 1e-6, "duration covers offset deck");
+        e.snapSmoothers();
+        e.setPlaying(true);
+        auto out = renderSeconds(e, 3.0);
+        auto sig = [](int i) -> double {
+            if (i < 0) return 0;
+            return 0.1 * std::sin(2 * M_PI * 440 * i / 44100.0) + ((i % 11025 < 200) ? 0.2 : 0.0) +
+                   0.1 * std::sin(2 * M_PI * 55 * i / 44100.0) + 0.05 * std::sin(2 * M_PI * 880 * i / 44100.0);
+        };
+        auto vox = [](int i) -> double { return i < 0 ? 0 : 0.1 * std::sin(2 * M_PI * 440 * i / 44100.0); };
+        double maxErr = 0;
+        for (int i = sr / 10; i < sr * 3; ++i) {
+            const double want = sig(i) + sig(i - sr) - vox(i - sr);
+            maxErr = std::max(maxErr, std::fabs(out[2 * i] - want));
+        }
+        std::printf("    two-deck mix max deviation %.6f\n", maxErr);
+        CHECK(maxErr < 3e-4, "deck 1 lands exactly 1 s later, deck stem gain applies");
+
+        // Tempo sync: deck 1 at 2x reads its source twice as fast.
+        e.setDeckParam(1, D_OFFSET, 0.f);
+        e.setDeckParam(1, D_RATIO, 2.f);
+        e.setDeckParam(1, D_KEYLOCK, 0.f);
+        e.setDeckParam(1, D_GAIN_VOCALS, 1.f);
+        e.setDeckParam(0, D_VOLUME, 0.f);
+        e.seek(2.0);
+        renderSeconds(e, 0.5);
+        out = renderSeconds(e, 0.5);
+        maxErr = 0;
+        for (int i = sr / 10; i < sr / 2; ++i) {
+            const double t = 2.5 + (double)i / sr;
+            const double want = sig((int)std::lround(t * 2 * sr));
+            maxErr = std::max(maxErr, std::fabs(out[2 * i] - want));
+        }
+        std::printf("    2x tempo deck max deviation %.5f\n", maxErr);
+        CHECK(maxErr < 0.03, "tempo ratio resamples the deck on the shared clock");
+        CHECK(std::fabs(e.duration() - 20.0) < 1e-6, "duration follows deck ratio");
+    }
+
+    std::printf("[dj] roll, tape stop, sound pads\n");
+    {
+        StemEngine e;
+        e.prepare(48000);
+        std::string err;
+        e.load(stems, sr, &err);
+        e.setGlobal(G_BPM, 120);
+        e.setPlaying(true);
+        renderSeconds(e, 1.0);
+        e.setGlobal(G_ROLL, 0.5f);  // 1/2 beat = 0.25 s repeat
+        auto out = renderSeconds(e, 2.0);
+        CHECK(std::fabs(e.position() - 3.0) < 0.02, "slip: timeline keeps moving during a roll");
+        CHECK(allFinite(out), "roll output finite");
+        e.setGlobal(G_ROLL, 0.f);
+        renderSeconds(e, 0.5);
+        CHECK(std::fabs(e.position() - 3.5) < 0.02, "release resumes where the track would be");
+        e.brake();
+        renderSeconds(e, 1.2);
+        CHECK(!e.isPlaying(), "tape stop halts playback");
+        const double stopped = e.position();
+        CHECK(stopped > 3.6 && stopped < 4.1, "tape stop decelerates (doesn't jump)");
+        std::vector<float> pad(48000 * 2, 0.f);
+        e.triggerSfx(1);  // drop
+        e.render(pad.data(), 48000);
+        float pk = 0;
+        for (float v : pad) pk = std::max(pk, std::fabs(v));
+        CHECK(pk > 0.2f && pk <= 1.f, "sound pad plays even while paused");
+    }
+
+    std::printf("[edm] new effects at extreme settings stay stable\n");
+    {
+        StemEngine e;
+        e.prepare(48000);
+        std::string err;
+        e.load(stems, sr, &err);
+        e.setGlobal(G_BPM, 128);
+        for (int b = 0; b < kNumBuses; ++b) {
+            auto& p = e.bus(b);
+            p.set(P_CRUSH, 1); p.set(P_PHASER, 1); p.set(P_FLANGER, 1);
+            p.set(P_GATE, 1); p.set(P_PUMP, 1); p.set(P_VOCODER, 1);
+            p.set(P_DJ_FILTER, b % 2 ? 0.9f : -0.9f);
+        }
+        e.setPlaying(true);
+        auto t0 = std::chrono::steady_clock::now();
+        auto out = renderSeconds(e, 10.0, 96);
+        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        CHECK(allFinite(out), "EDM FX: finite and limited");
+        std::printf("    10 s with every EDM effect on every bus: %.2f s CPU (%.1fx real time)\n", secs, 10.0 / secs);
+        double energy = 0;
+        for (float v : out) energy += v * v;
+        CHECK(energy > 1.0, "EDM chain produces sound");
+    }
+
+    std::printf("[export] mashup render == live\n");
+    {
+        StemEngine live;
+        live.prepare(sr);
+        std::string err;
+        live.loadDecks({DeckSpec{stems, sr}, DeckSpec{stems, sr}}, &err);
+        live.setDeckParam(1, D_OFFSET, 0.5f);
+        live.setDeckParam(1, D_PITCH, 3.f);
+        live.setDeckParam(0, D_GAIN_DRUMS, 0.3f);
+        live.bus(kMasterBus).set(P_PHASER, 0.5f);
+        std::atomic<float> prog{0};
+        std::atomic<bool> cancel{false};
+        ExportOptions o;
+        o.path = tmpDir() + "/phase_mashup.wav";
+        o.endSec = 3.0;
+        o.renderTail = false;
+        CHECK(exportMix(live, o, prog, cancel, &err), "mashup export");
+        live.seek(0);
+        live.snapSmoothers();
+        live.setTransportImmediate(true);
+        auto ref = renderSeconds(live, 3.0, 4096);
+        std::ifstream f(o.path, std::ios::binary);
+        std::vector<char> bytes((std::istreambuf_iterator<char>(f)), {});
+        const int16_t* pcm = (const int16_t*)(bytes.data() + 44);
+        size_t n = std::min((bytes.size() - 44) / 2, ref.size());
+        double maxErr = 0;
+        for (size_t i = 0; i < n; ++i) maxErr = std::max(maxErr, std::fabs(pcm[i] / 32767.0 - ref[i]));
+        std::printf("    mashup export vs live max diff %.6f\n", maxErr);
+        CHECK(maxErr < 3e-4, "mashup export matches playback");
+    }
+
     std::printf(failures ? "\n%d FAILURE(S)\n" : "\nALL ENGINE TESTS PASSED\n", failures);
     return failures ? 1 : 0;
 }

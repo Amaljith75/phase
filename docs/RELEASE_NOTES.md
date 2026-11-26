@@ -1,26 +1,27 @@
-## Phase — on-device AI
+## Phase 0.3 — mashups, DJ & EDM
 
-**The AI now runs on your phone.** Import a song and it is split into
-vocals · drums · bass · other right on the device — no computer, no server,
-no account, nothing uploaded, works offline.
+**Install:** `Phase-*-arm64-v8a.apk` for almost every phone (`armeabi-v7a` for
+older 32-bit phones; `.aab` is for Google Play). Installs over the previous
+version — your library and stems are kept.
 
-**Which file?**
-- `Phase-*-arm64-v8a.apk` — almost every Android phone (install this one)
-- `Phase-*-armeabi-v7a.apk` — older 32-bit phones
-- `Phase-*.aab` — for publishing on Google Play
+### New
+- **Mashups / crossovers** — layer up to 4 separated songs on one timeline.
+  Songs are tempo-synced (half/double time chosen automatically) and
+  beat-aligned; set vocals/drums/bass/other per song, volume, key (±12
+  semitones with key lock), start beat and fine nudge. The stem pads, FX,
+  recording and export work on the whole mashup.
+- **Sound modes** — Slowed + Reverb, Sped up, Lo-fi, Club, Original, plus a
+  pitch control (±semitones) with key lock.
+- **DJ** — one-knob filter (low-pass ◀ ▶ high-pass), hold-to-roll beat repeat
+  (1, ½, ¼, ⅛ beat, slip mode), tape stop, echo out, sidechain pump, trance gate.
+- **EDM** — robot voice (16-band vocoder with selectable key), bitcrusher,
+  phaser, flanger, French-house and techno starting presets. All new effects
+  are also available per stem in FX Studio.
+- **Sound pads** — riser, drop, laser, air horn, siren, downlifter
+  (synthesised in the app).
+- New Phase logo and app icon.
 
-Android 8.0+. AI separation needs 4 GB RAM or more (6 GB+ recommended) and takes a few minutes
-per song (it keeps running in the background with a progress notification).
+### Fixed
+- The REC button no longer runs off the screen; the timer shows in full.
 
-### New in this release
-- On-device Hybrid Transformer Demucs (ONNX Runtime), verified to produce the
-  same stems as the original PyTorch model
-- Separation runs one song at a time, survives backgrounding, cancellable
-- Play Store ready: targets Android 16 (API 36), 16 KB page-size compatible,
-  App Bundle, privacy policy
-- Landscape/tablet layout for the player
-- The self-hosted server is now an optional advanced setting
-
-### Known limitations
-- Separation speed depends on the phone (roughly 1–3× the song length on recent phones).
-- Keep-pitch at extreme speeds uses a granular shifter (audible artefacts).
+AI stem separation runs on the phone (4 GB RAM or more, 6 GB+ recommended).

@@ -66,6 +66,10 @@ private val sections = listOf(
     FxSection("Equalizer", listOf(Param.EQ_LOW, Param.EQ_MID, Param.EQ_HIGH)) { m, b ->
         listOf(Param.EQ_LOW, Param.EQ_MID, Param.EQ_HIGH).any { p -> m[b, p] != 0f }
     },
+    FxSection("DJ filter", listOf(Param.DJ_FILTER)) { m, b -> m[b, Param.DJ_FILTER] != 0f },
+    FxSection("Robot voice · crush", listOf(Param.VOCODER, Param.CRUSH)) { m, b -> m[b, Param.VOCODER] > 0f || m[b, Param.CRUSH] > 0f },
+    FxSection("Phaser · flanger", listOf(Param.PHASER, Param.FLANGER)) { m, b -> m[b, Param.PHASER] > 0f || m[b, Param.FLANGER] > 0f },
+    FxSection("Beat FX · gate · pump", listOf(Param.GATE, Param.PUMP)) { m, b -> m[b, Param.GATE] > 0f || m[b, Param.PUMP] > 0f },
 )
 
 @Composable

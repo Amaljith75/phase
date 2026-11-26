@@ -116,3 +116,39 @@ class TempoTest {
         assertEquals(120f, bpm!!, 0.01f)
     }
 }
+
+class MashupTest {
+    private fun deck(bpm: Float?, off: Float = 0f) = app.phase.stem.audio.DeckState("t$bpm", "song", bpm, off)
+
+    @Test fun tempoRatioPrefersNaturalHalfOrDoubleTime() {
+        val m = app.phase.stem.audio.MashupState("m", "x", listOf(deck(128f), deck(70f), deck(126f)))
+        assertEquals(1f, m.ratio(m.decks[0]), 1e-6f)
+        // 70 -> 128 would be 1.83x; half-time 64 needs only 0.914x
+        assertEquals(128f / 140f, m.ratio(m.decks[1]), 1e-4f)
+        assertEquals(128f / 126f, m.ratio(m.decks[2]), 1e-4f)
+    }
+
+    @Test fun beatsAlignToTheMasterGrid() {
+        // Deck 0 first beat at 0.25 s (120 BPM); deck 1 first beat at 0.40 s.
+        val m = app.phase.stem.audio.MashupState("m", "x", listOf(deck(120f, 0.25f), deck(120f, 0.40f)))
+        val off = m.offsetSeconds(1)
+        val deck1FirstBeatOnTimeline = off + 0.40f
+        val phase = ((deck1FirstBeatOnTimeline - 0.25f) % 0.5f + 0.5f) % 0.5f
+        assertTrue("phase $phase", phase < 1e-4f || phase > 0.5f - 1e-4f)
+        val later = m.copy(decks = listOf(m.decks[0], m.decks[1].copy(startBeats = 4)))
+        assertEquals(off + 2f, later.offsetSeconds(1), 1e-4f)
+    }
+
+    @Test fun jsonRoundTrip() {
+        val m = app.phase.stem.audio.MashupState("m", "My mash", listOf(deck(128f).copy(stemGains = listOf(0f, 1f, 1.2f, 0.5f), pitch = -2f, startBeats = 8)), 124f)
+        assertEquals(m, app.phase.stem.audio.MashupState.fromJson("m", m.toJson()))
+    }
+
+    @Test fun slowedReverbMode() {
+        val s = app.phase.stem.audio.SoundMode.SLOWED.apply(MixState())
+        assertEquals(0.85f, s.speed)
+        assertTrue(s[Bus.MASTER, Param.REVERB_MIX] > 0.3f)
+        assertEquals(app.phase.stem.audio.SoundMode.SLOWED, app.phase.stem.audio.SoundMode.detect(s))
+        assertEquals(app.phase.stem.audio.SoundMode.ORIGINAL, app.phase.stem.audio.SoundMode.detect(app.phase.stem.audio.SoundMode.ORIGINAL.apply(s)))
+    }
+}

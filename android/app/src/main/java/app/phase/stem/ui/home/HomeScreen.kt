@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
@@ -62,11 +63,13 @@ fun HomeScreen(
     onOpenProject: (ProjectEntity) -> Unit,
     onSettings: () -> Unit,
     onLibrary: () -> Unit,
+    onMashup: (String?) -> Unit,
 ) {
     val graph = LocalGraph.current
     val tracks by graph.db.tracks().all().collectAsState(initial = emptyList())
     val recent by graph.db.tracks().recentlyPlayed(10).collectAsState(initial = emptyList())
     val projects by graph.db.projects().all().collectAsState(initial = emptyList())
+    val mashups by graph.db.mashups().all().collectAsState(initial = emptyList())
     val importErrors by graph.importer.errors.collectAsState()
     val settings = appSettings()
     val processing = tracks.filter { it.status in setOf(TrackStatus.IMPORTING, TrackStatus.QUEUED, TrackStatus.SEPARATING) }
@@ -75,16 +78,26 @@ fun HomeScreen(
     LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    MetalTitle("PHASE")
-                    Text("TACTILE STEM INSTRUMENT", style = PhaseType.labelSmall, color = PhaseColors.Steel)
-                }
+                androidx.compose.foundation.Image(
+                    androidx.compose.ui.res.painterResource(app.phase.stem.R.drawable.logo_phase), "Phase",
+                    modifier = Modifier.height(64.dp),
+                )
+                Spacer(Modifier.weight(1f))
                 Box(Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onSettings), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Settings, "Settings", tint = PhaseColors.Mist)
                 }
             }
         }
         item { ImportDial(onImport) }
+        item {
+            val separated = tracks.count { it.isSeparated }
+            HardwareKey(
+                if (separated >= 2) "CREATE MASHUP" else "MASHUP · needs 2 separated songs",
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                icon = Icons.Rounded.Layers, active = separated >= 2, color = Color(0xFFFF4D9A),
+                enabled = separated >= 1,
+            ) { onMashup(null) }
+        }
         if (!settings.canSeparate) item {
             GlassPanel(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), glow = Color(0xFFFFB547)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -123,8 +136,22 @@ fun HomeScreen(
                 }
             }
         }
-        if (projects.isNotEmpty()) {
+        if (projects.isNotEmpty() || mashups.isNotEmpty()) {
             item { SectionLabel("Your mixes", Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
+            items(mashups.take(5), key = { "x" + it.id }) { x ->
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp).clip(RoundedCornerShape(14.dp)).clickable { onMashup(x.id) }.padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(Color(0x33FF4D9A)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Layers, null, tint = Color(0xFFFF4D9A))
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(x.name, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("MASHUP", style = PhaseType.labelSmall, color = Color(0xFFFF4D9A))
+                    }
+                }
+            }
             items(projects.take(5), key = { "m" + it.id }) { p ->
                 val t = byId[p.trackId]
                 Row(

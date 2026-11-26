@@ -21,8 +21,13 @@ import kotlin.math.sqrt
 object BpmDetector {
     private const val HOP = 512
 
+    /** Tempo plus the time of the first beat (seconds from the start of the file). */
+    data class Tempo(val bpm: Float, val beatOffset: Float)
+
     /** Analyses up to [maxSeconds] from the middle of an int16 stereo PCM file. */
-    fun detect(pcm: File, sampleRate: Int, maxSeconds: Int = 60): Float? {
+    fun detect(pcm: File, sampleRate: Int, maxSeconds: Int = 60): Float? = analyze(pcm, sampleRate, maxSeconds)?.bpm
+
+    fun analyze(pcm: File, sampleRate: Int, maxSeconds: Int = 60): Tempo? {
         if (!pcm.exists() || sampleRate <= 0) return null
         RandomAccessFile(pcm, "r").use { raf ->
             val ch = raf.channel
@@ -34,8 +39,33 @@ object BpmDetector {
             for (i in mono.indices) {
                 mono[i] = (buf.getShort(i * 4) + buf.getShort(i * 4 + 2)) / 65536f
             }
-            return detect(mono, sampleRate)
+            val bpm = detect(mono, sampleRate) ?: return null
+            val phase = beatPhase(mono, sampleRate, bpm)
+            val period = 60.0 / bpm
+            val off = ((start.toDouble() / sampleRate + phase) % period + period) % period
+            return Tempo(bpm, off.toFloat())
         }
+    }
+
+    /** Seconds (within one beat period, from the analysed buffer's start) of the strongest beat grid. */
+    fun beatPhase(mono: FloatArray, sampleRate: Int, bpm: Float): Double {
+        val env = onsetEnvelope(mono)
+        val fps = sampleRate.toDouble() / HOP
+        val period = fps * 60.0 / bpm
+        val steps = max(1, period.toInt())
+        var best = 0
+        var bestSum = -1.0
+        for (p in 0 until steps) {
+            var sum = 0.0
+            var k = p.toDouble()
+            while (k < env.size - 1) {
+                val i = k.toInt()
+                sum += env[i] + 0.5 * env[i + 1]
+                k += period
+            }
+            if (sum > bestSum) { bestSum = sum; best = p }
+        }
+        return best / fps
     }
 
     fun detect(mono: FloatArray, sampleRate: Int): Float? {

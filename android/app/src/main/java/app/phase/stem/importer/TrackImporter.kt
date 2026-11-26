@@ -118,7 +118,7 @@ class TrackImporter(
                 )
             }
             if (auto) SeparationWorker.enqueue(context, id)
-            BpmDetector.detect(storage.mixPcm(id), result.sampleRate)?.let { db.tracks().saveBpm(id, it) }
+            BpmDetector.analyze(storage.mixPcm(id), result.sampleRate)?.let { db.tracks().saveTempo(id, it.bpm, it.beatOffset) }
         } catch (e: Exception) {
             storage.deleteTrack(id)
             db.tracks().delete(id)

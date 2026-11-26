@@ -146,6 +146,7 @@ fun HardwareKey(
     color: Color = PhaseColors.Chrome,
     icon: ImageVector? = null,
     enabled: Boolean = true,
+    compact: Boolean = false,
     onClick: () -> Unit,
 ) {
     val haptics = rememberHaptics()
@@ -156,16 +157,19 @@ fun HardwareKey(
             .background(if (active) color.copy(alpha = 0.16f) else Color(0xFF17171C))
             .border(1.dp, if (active) color.copy(alpha = 0.7f) else PhaseColors.Edge, shape)
             .clickable(enabled = enabled) { haptics.key(); onClick() }
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = if (compact) 4.dp else 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
         if (icon != null) {
-            Icon(icon, null, tint = if (active) color else if (enabled) PhaseColors.Mist else PhaseColors.Edge, modifier = Modifier.size(16.dp))
-            if (text.isNotEmpty()) Spacer(Modifier.width(6.dp))
+            Icon(icon, null, tint = if (active) color else if (enabled) PhaseColors.Mist else PhaseColors.Edge, modifier = Modifier.size(if (compact) 14.dp else 16.dp))
+            if (text.isNotEmpty()) Spacer(Modifier.width(if (compact) 3.dp else 6.dp))
         }
         if (text.isNotEmpty()) {
-            Text(text, style = PhaseType.labelSmall, color = if (active) color else if (enabled) PhaseColors.Mist else PhaseColors.Edge, maxLines = 1)
+            Text(
+                text, style = if (compact) PhaseType.labelSmall.copy(letterSpacing = 0.5.sp) else PhaseType.labelSmall,
+                color = if (active) color else if (enabled) PhaseColors.Mist else PhaseColors.Edge, maxLines = 1, softWrap = false,
+            )
         }
     }
 }

@@ -25,7 +25,14 @@ enum class Param(val id: Int, val min: Float, val max: Float, val default: Float
     PITCH(20, -12f, 12f, 0f, "Pitch", "st"),
     EQ_LOW(21, -12f, 12f, 0f, "Low", "dB"),
     EQ_MID(22, -12f, 12f, 0f, "Mid", "dB"),
-    EQ_HIGH(23, -12f, 12f, 0f, "High", "dB");
+    EQ_HIGH(23, -12f, 12f, 0f, "High", "dB"),
+    CRUSH(24, 0f, 1f, 0f, "Crush"),
+    PHASER(25, 0f, 1f, 0f, "Phaser"),
+    FLANGER(26, 0f, 1f, 0f, "Flanger"),
+    GATE(27, 0f, 1f, 0f, "Gate"),
+    PUMP(28, 0f, 1f, 0f, "Pump"),
+    VOCODER(29, 0f, 1f, 0f, "Robot"),
+    DJ_FILTER(30, -1f, 1f, 0f, "Filter");
 
     fun clamp(v: Float) = v.coerceIn(min, max)
 
@@ -48,6 +55,11 @@ enum class Param(val id: Int, val min: Float, val max: Float, val default: Float
         CHORUS_RATE -> "%.2f".format(v)
         PITCH -> (if (v > 0.05f) "+" else "") + "%.1f".format(v)
         EQ_LOW, EQ_MID, EQ_HIGH -> (if (v > 0.05f) "+" else "") + "%.1f".format(v)
+        DJ_FILTER -> when {
+            v < -0.02f -> "LP %.0f".format(-v * 100)
+            v > 0.02f -> "HP %.0f".format(v * 100)
+            else -> "OFF"
+        }
         PAN -> when {
             v < -0.02f -> "L%.0f".format(-v * 100)
             v > 0.02f -> "R%.0f".format(v * 100)
@@ -77,3 +89,26 @@ enum class Bus(val index: Int, val label: String, val short: String) {
         fun of(index: Int) = entries.first { it.index == index }
     }
 }
+
+/** Mirrors DeckParam in engine/Params.h. */
+object DeckParam {
+    const val GAIN_VOCALS = 0
+    const val VOLUME = 4
+    const val OFFSET = 5
+    const val RATIO = 6
+    const val PITCH = 7
+    const val KEYLOCK = 8
+    fun gain(bus: Bus) = GAIN_VOCALS + bus.index
+}
+
+/** Mirrors GlobalParam in engine/Params.h. */
+object GlobalParam {
+    const val BPM = 0
+    const val BEAT_OFFSET = 1
+    const val VOCODER_ROOT = 2
+    const val VOCODER_MINOR = 3
+    const val ROLL = 4
+}
+
+/** Synthesised DJ one-shots (engine/dsp/SfxBank.h order). */
+enum class SoundPad(val label: String) { RISER("RISER"), DROP("DROP"), LASER("LASER"), HORN("HORN"), SIREN("SIREN"), DOWN("DOWNLIFT") }

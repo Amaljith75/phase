@@ -39,7 +39,39 @@ enum ParamId : int {
     P_EQ_LOW,          // dB -12..12
     P_EQ_MID,          // dB -12..12
     P_EQ_HIGH,         // dB -12..12
+    P_CRUSH,           // 0..1 bitcrusher (bit depth + sample-rate reduction)
+    P_PHASER,          // 0..1 mix
+    P_FLANGER,         // 0..1 mix
+    P_GATE,            // 0..1 depth, 1/16-note trance gate (beat synced)
+    P_PUMP,            // 0..1 depth, sidechain-style pump on every beat
+    P_VOCODER,         // 0..1 mix, robot voice (channel vocoder, synth carrier)
+    P_DJ_FILTER,       // -1..1  (<0 low-pass sweep, >0 high-pass sweep)
     P_COUNT
+};
+
+// Mashup decks: up to four songs, each with four stems.
+constexpr int kMaxDecks = 4;
+enum DeckParam : int {
+    D_GAIN_VOCALS = 0,  // per-stem level inside this deck (bus order)
+    D_GAIN_DRUMS,
+    D_GAIN_BASS,
+    D_GAIN_OTHER,
+    D_VOLUME,           // deck fader 0..1.5
+    D_OFFSET,           // seconds: where this song starts on the shared timeline
+    D_RATIO,            // tempo ratio (beat-sync): 0.5..2
+    D_PITCH,            // semitones -12..12
+    D_KEYLOCK,          // 1 = keep original key when the tempo ratio != 1
+    D_COUNT
+};
+
+// Engine-wide performance controls.
+enum GlobalParam : int {
+    G_BPM = 0,          // tempo of the timeline (beat effects, rolls); <=0 = unknown
+    G_BEAT_OFFSET,      // seconds of the first downbeat
+    G_VOCODER_ROOT,     // MIDI note of the vocoder carrier chord
+    G_VOCODER_MINOR,    // 1 = minor chord
+    G_ROLL,             // beat-repeat length in beats; 0 = off
+    G_COUNT
 };
 
 struct ParamSpec {
@@ -72,6 +104,13 @@ inline const ParamSpec& paramSpec(int id) {
         {-12.f, 12.f, 0.f},      // EQ_LOW
         {-12.f, 12.f, 0.f},      // EQ_MID
         {-12.f, 12.f, 0.f},      // EQ_HIGH
+        {0.f, 1.f, 0.f},         // CRUSH
+        {0.f, 1.f, 0.f},         // PHASER
+        {0.f, 1.f, 0.f},         // FLANGER
+        {0.f, 1.f, 0.f},         // GATE
+        {0.f, 1.f, 0.f},         // PUMP
+        {0.f, 1.f, 0.f},         // VOCODER
+        {-1.f, 1.f, 0.f},        // DJ_FILTER
     };
     return specs[(id < 0 || id >= P_COUNT) ? 0 : id];
 }

@@ -6,18 +6,43 @@
 
 namespace phase {
 
+namespace {
+float deckDefault(int id) {
+    switch (id) {
+        case D_OFFSET: case D_PITCH: return 0.f;
+        default: return 1.f;  // gains, volume, ratio, keylock
+    }
+}
+float clampDeck(int id, float v) {
+    switch (id) {
+        case D_GAIN_VOCALS: case D_GAIN_DRUMS: case D_GAIN_BASS: case D_GAIN_OTHER: case D_VOLUME:
+            return std::clamp(v, 0.f, 1.5f);
+        case D_OFFSET: return std::clamp(v, -3600.f, 3600.f);
+        case D_RATIO: return std::clamp(v, 0.5f, 2.f);
+        case D_PITCH: return std::clamp(v, -12.f, 12.f);
+        default: return v > 0.5f ? 1.f : 0.f;
+    }
+}
+}  // namespace
+
 // ============================================================ BusProcessor ==
 
 void BusProcessor::prepare(float sr) {
     sr_ = sr;
     pitch_.prepare(sr);
     filters_.prepare(sr);
+    djFilter_.prepare(sr);
     eq_.prepare(sr);
+    crush_.prepare(sr);
     dist_.prepare(sr);
+    vocoder_.prepare(sr);
+    phaser_.prepare(sr);
+    flanger_.prepare(sr);
     chorus_.prepare(sr);
     delay_.prepare(sr);
     echo_.prepare(sr);
     reverb_.prepare(sr);
+    beatDyn_.prepare(sr);
     gain_.prepare(sr, 15.f);
     pan_.prepare(sr, 30.f);
     gain_.snap(1.f);
@@ -32,6 +57,7 @@ void BusProcessor::reset() {
     filters_.reset();
     eq_.reset();
     dist_.reset();
+    phaser_.reset();
     chorus_.reset();
     delay_.reset();
     echo_.reset();
@@ -44,15 +70,22 @@ void BusProcessor::snapGain(const BusParams& p, bool audible) {
     pan_.snap(p.get(P_PAN));
 }
 
-void BusProcessor::process(float* L, float* R, int n, const BusParams& p, bool audible, float extraPitch) {
+void BusProcessor::process(float* L, float* R, int n, const BusParams& p, bool audible, float extraPitch,
+                           const BeatContext& bc) {
     pitch_.process(L, R, n, p.get(P_PITCH) + extraPitch);
     filters_.process(L, R, n, p.get(P_HPF_FREQ), p.get(P_LPF_FREQ));
+    djFilter_.process(L, R, n, p.get(P_DJ_FILTER));
     eq_.process(L, R, n, p.get(P_EQ_LOW), p.get(P_EQ_MID), p.get(P_EQ_HIGH));
+    crush_.process(L, R, n, p.get(P_CRUSH));
     dist_.process(L, R, n, p.get(P_DIST_MIX), p.get(P_DRIVE));
+    vocoder_.process(L, R, n, p.get(P_VOCODER), bc.vocoderRoot, bc.vocoderMinor);
+    phaser_.process(L, R, n, p.get(P_PHASER));
+    flanger_.process(L, R, n, p.get(P_FLANGER));
     chorus_.process(L, R, n, p.get(P_CHORUS_MIX), p.get(P_CHORUS_RATE), p.get(P_CHORUS_DEPTH));
     delay_.process(L, R, n, p.get(P_DELAY_MIX), p.get(P_DELAY_TIME), p.get(P_DELAY_FEEDBACK));
     echo_.process(L, R, n, p.get(P_ECHO_MIX), p.get(P_ECHO_TIME), p.get(P_ECHO_FEEDBACK));
     reverb_.process(L, R, n, p.get(P_REVERB_MIX), p.get(P_REVERB_SIZE), p.get(P_REVERB_DAMP));
+    beatDyn_.process(L, R, n, bc.beat, p.get(P_GATE), p.get(P_PUMP));
 
     gain_.setTarget(audible ? p.get(P_GAIN) : 0.f);
     pan_.setTarget(p.get(P_PAN));
@@ -76,6 +109,10 @@ void BusProcessor::process(float* L, float* R, int n, const BusParams& p, bool a
 
 StemEngine::StemEngine() {
     for (auto& m : meter_) m.store(0.f);
+    for (auto& d : deck_) for (int i = 0; i < D_COUNT; ++i) d[i].store(deckDefault(i));
+    for (auto& g : globals_) g.store(0.f);
+    globals_[G_VOCODER_ROOT].store(48.f);
+    globals_[G_VOCODER_MINOR].store(1.f);
     prepare(48000);
     prefetchRun_.store(true);
     prefetch_ = std::thread(&StemEngine::prefetchLoop, this);
@@ -96,52 +133,79 @@ void StemEngine::prepare(int sr) {
     wNew_.assign(kChunk, 0);
     wOld_.assign(kChunk, 0);
     tg_.assign(kChunk, 0);
-    busL_.assign(kChunk, 0);
-    busR_.assign(kChunk, 0);
+    beat_.assign(kChunk, 0);
+    for (int s = 0; s < kNumStems; ++s) {
+        busL_[s].assign(kChunk, 0);
+        busR_[s].assign(kChunk, 0);
+    }
+    srcL_.assign(kChunk, 0);
+    srcR_.assign(kChunk, 0);
     mixL_.assign(kChunk, 0);
     mixR_.assign(kChunk, 0);
-    inter_.assign(kChunk * 2, 0);
     for (auto& b : buses_) b.prepare((float)outRate_);
     for (int i = 0; i < kNumBuses; ++i) buses_[i].snapGain(params_[i], true);
+    for (auto& d : deckDsp_) {
+        for (int s = 0; s < kNumStems; ++s) {
+            d.gain[s].prepare((float)outRate_, 15.f);
+            d.gain[s].snap(1.f);
+            d.pitch[s].prepare((float)outRate_);
+        }
+    }
     limiter_.prepare((float)outRate_);
+    sfx_.prepare((float)outRate_);
     tGain_.prepare((float)outRate_, 6.f);
     tGain_.snap(running_ ? 1.f : 0.f);
     xfRemain_ = 0;
 }
 
-bool StemEngine::load(const std::vector<std::string>& paths, int sourceRate, std::string* err) {
-    if (paths.empty() || sourceRate <= 0) {
-        if (err) *err = "no sources";
+bool StemEngine::loadDecks(const std::vector<DeckSpec>& specs, std::string* err) {
+    if (specs.empty() || (int)specs.size() > kMaxDecks) {
+        if (err) *err = "need 1.." + std::to_string(kMaxDecks) + " decks";
         return false;
     }
     auto nt = std::make_unique<Track>();
-    for (const auto& p : paths) {
-        auto src = std::make_unique<PcmSource>();
-        if (!src->open(p, err)) return false;
-        nt->frames = std::max(nt->frames, src->frames());
-        nt->sources.push_back(std::move(src));
+    for (const auto& spec : specs) {
+        if (spec.paths.empty() || spec.sampleRate <= 0) {
+            if (err) *err = "deck has no sources";
+            return false;
+        }
+        Deck d;
+        d.rate = spec.sampleRate;
+        d.spec = spec;
+        for (const auto& p : spec.paths) {
+            auto src = std::make_unique<PcmSource>();
+            if (!src->open(p, err)) return false;
+            d.frames = std::max(d.frames, src->frames());
+            d.sources.push_back(std::move(src));
+        }
+        nt->decks.push_back(std::move(d));
     }
     std::lock_guard<std::mutex> lk(trackMutex_);
     swapping_.store(true);
     while (inRender_.load()) std::this_thread::yield();  // at most one callback
     Track* old = track_.exchange(nt.release());
     // Audio thread is parked: safe to reset its private state.
-    srcRate_ = sourceRate;
-    playhead_ = oldHead_ = 0;
+    srcRate_ = specs[0].sampleRate;
+    for (auto& d : deck_) for (int i = 0; i < D_COUNT; ++i) d[i].store(deckDefault(i));
+    playhead_ = oldHead_ = slipHead_ = 0;
     xfRemain_ = 0;
     running_ = false;
+    braking_ = false;
+    brakeMul_ = 1.f;
+    rollActive_ = false;
     wantPlay_.store(false);
     ended_.store(false);
     tGain_.snap(0.f);
     lastSeekSeq_ = seekSeq_.load();
+    lastBrakeSeq_ = brakeSeq_.load();
     publicPos_.store(0);
-    duration_.store((double)track_.load()->frames / sourceRate);
     for (int i = 0; i < kNumBuses; ++i) {
         buses_[i].reset();
         buses_[i].snapGain(params_[i], true);
     }
+    for (auto& d : deckDsp_) for (int s = 0; s < kNumStems; ++s) { d.gain[s].snap(1.f); d.pitch[s].reset(); }
     swapping_.store(false);
-    paths_ = paths;
+    recomputeDuration();
     delete old;
     return true;
 }
@@ -157,7 +221,6 @@ void StemEngine::unload() {
     duration_.store(0);
     publicPos_.store(0);
     swapping_.store(false);
-    paths_.clear();
     delete old;
 }
 
@@ -165,7 +228,51 @@ bool StemEngine::hasTrack() const { return track_.load() != nullptr; }
 
 int StemEngine::sourceCount() const {
     Track* t = track_.load();
-    return t ? (int)t->sources.size() : 0;
+    return t && !t->decks.empty() ? (int)t->decks[0].sources.size() : 0;
+}
+
+int StemEngine::deckCount() const {
+    Track* t = track_.load();
+    return t ? (int)t->decks.size() : 0;
+}
+
+std::vector<DeckSpec> StemEngine::loadedDecks() const {
+    std::vector<DeckSpec> out;
+    Track* t = track_.load();
+    if (t) for (const auto& d : t->decks) out.push_back(d.spec);
+    return out;
+}
+
+void StemEngine::recomputeDuration() {
+    Track* t = track_.load();
+    double dur = 0;
+    if (t) {
+        for (size_t i = 0; i < t->decks.size(); ++i) {
+            const auto& d = t->decks[i];
+            const double ratio = deck_[i][D_RATIO].load();
+            dur = std::max(dur, deck_[i][D_OFFSET].load() + (double)d.frames / (d.rate * ratio));
+        }
+    }
+    duration_.store(std::max(0.0, dur));
+}
+
+void StemEngine::setDeckParam(int deck, int id, float v) {
+    if (deck < 0 || deck >= kMaxDecks || id < 0 || id >= D_COUNT) return;
+    deck_[deck][id].store(clampDeck(id, v));
+    if (id == D_OFFSET || id == D_RATIO) recomputeDuration();
+}
+
+float StemEngine::deckParam(int deck, int id) const {
+    if (deck < 0 || deck >= kMaxDecks || id < 0 || id >= D_COUNT) return 0;
+    return deck_[deck][id].load();
+}
+
+void StemEngine::copyPerformanceFrom(const StemEngine& o) {
+    for (int b = 0; b < kNumBuses; ++b) params_[b].copyFrom(o.params_[b]);
+    for (int d = 0; d < kMaxDecks; ++d) for (int i = 0; i < D_COUNT; ++i) deck_[d][i].store(o.deck_[d][i].load());
+    for (int g = 0; g < G_COUNT; ++g) globals_[g].store(o.globals_[g].load());
+    globals_[G_ROLL].store(0.f);  // momentary
+    recomputeDuration();
 }
 
 void StemEngine::setPlaying(bool play) {
@@ -226,12 +333,15 @@ void StemEngine::snapSmoothers() {
         buses_[s].snapGain(params_[s], audible);
     }
     buses_[kMasterBus].snapGain(params_[kMasterBus], true);
+    for (int d = 0; d < kMaxDecks; ++d)
+        for (int s = 0; s < kNumStems; ++s)
+            deckDsp_[d].gain[s].snap(deck_[d][D_GAIN_VOCALS + s].load() * deck_[d][D_VOLUME].load());
 }
 
 void StemEngine::setTransportImmediate(bool playing) {
     // Only valid when no audio thread is rendering this instance (offline use).
     lastSeekSeq_ = seekSeq_.load();
-    playhead_ = seekTarget_.load() * srcRate_;
+    playhead_ = slipHead_ = seekTarget_.load();
     xfRemain_ = 0;
     running_ = playing;
     wantPlay_.store(playing);
@@ -258,33 +368,80 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
     const uint32_t seq = seekSeq_.load(std::memory_order_acquire);
     if (seq != lastSeekSeq_) {
         lastSeekSeq_ = seq;
-        const double target = seekTarget_.load() * srcRate_;
+        const double target = seekTarget_.load();
         if (running_ && tGain_.current() > 1e-3f) {
             oldHead_ = playhead_;  // crossfade from where we are to the target
             xfRemain_ = xfLen_;
         }
         playhead_ = target;
+        slipHead_ = target;
+        if (rollActive_) rollStart_ = target;
     }
     const bool want = wantPlay_.load() && t != nullptr;
     if (want && !running_) running_ = true;
     tGain_.setTarget(want ? 1.f : 0.f);
 
+    const uint32_t bseq = brakeSeq_.load();
+    if (bseq != lastBrakeSeq_) {
+        lastBrakeSeq_ = bseq;
+        if (running_) { braking_ = true; brakeMul_ = 1.f; }
+    }
+
     const float speed = speed_.load();
     const bool reverse = reverse_.load();
-    const double step = (double)srcRate_ / outRate_ * speed * (reverse ? -1.0 : 1.0);
-    const double total = t ? (double)t->frames : 0.0;
-    double ls = loopStart_.load() * srcRate_, le = loopEnd_.load() * srcRate_;
-    le = std::min(le, total);
-    const bool loopActive = loopOn_.load() && (le - ls) > 0.05 * srcRate_;
+    const double baseStep = speed * (reverse ? -1.0 : 1.0) / outRate_;
+    const double total = duration_.load();
+    double ls = loopStart_.load(), le = std::min(loopEnd_.load(), total);
+    const bool loopActive = loopOn_.load() && (le - ls) > 0.05;
+    const float bpmRaw = globals_[G_BPM].load();
+    const bool beatKnown = bpmRaw > 1.f;
+    const double bps = (beatKnown ? bpmRaw : 120.f) / 60.0;
+    const double beatOff = globals_[G_BEAT_OFFSET].load();
 
-    // ---- per-frame source positions & weights ------------------------------
+    // Beat repeat (roll) with slip: the loop plays while the timeline keeps
+    // moving underneath; releasing jumps (crossfaded) to where we'd be.
+    const float rollBeats = globals_[G_ROLL].load();
+    if (rollBeats > 0.f && running_) {
+        const double len = rollBeats / bps;
+        if (!rollActive_) {
+            rollActive_ = true;
+            rollStart_ = playhead_;
+            slipHead_ = playhead_;
+        }
+        rollLen_ = len;
+    } else if (rollActive_) {
+        rollActive_ = false;
+        oldHead_ = playhead_;
+        xfRemain_ = xfLen_;
+        playhead_ = slipHead_;
+    }
+
+    // ---- per-frame timeline positions & weights ----------------------------
     for (int i = 0; i < n; ++i) {
         if (!running_) {
             tg_[i] = 0.f;
             wNew_[i] = wOld_[i] = 0.f;
+            beat_[i] = 0.f;
             continue;
         }
         tg_[i] = tGain_.next();
+        double stepMul = 1.0;
+        if (braking_) {
+            brakeMul_ -= 1.f / (0.8f * outRate_);
+            if (brakeMul_ <= 0.f) {
+                braking_ = false;
+                brakeMul_ = 1.f;
+                running_ = false;
+                wantPlay_.store(false);
+                tGain_.snap(0.f);
+                xfRemain_ = 0;
+                tg_[i] = 0.f;
+                wNew_[i] = wOld_[i] = 0.f;
+                continue;
+            }
+            stepMul = brakeMul_ * brakeMul_;
+        }
+        const double step = baseStep * stepMul;
         posNew_[i] = playhead_;
         if (xfRemain_ > 0) {
             const float x = 1.f - (float)xfRemain_ / (float)xfLen_;
@@ -297,20 +454,27 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
             wNew_[i] = 1.f;
             wOld_[i] = 0.f;
         }
+        double b = (playhead_ - beatOff) * bps;
+        beat_[i] = (float)(b - std::floor(b));
         playhead_ += step;
+        slipHead_ += step;
 
-        if (loopActive) {
-            if (step > 0 && playhead_ >= le) {
+        double rs = ls, re = le;
+        bool region = loopActive;
+        if (rollActive_) { rs = rollStart_; re = rollStart_ + rollLen_; region = true; }
+        if (region) {
+            if (step > 0 && playhead_ >= re) {
                 oldHead_ = playhead_;
                 xfRemain_ = xfLen_;
-                playhead_ = ls + std::fmod(playhead_ - le, le - ls);
-            } else if (step < 0 && playhead_ <= ls) {
+                playhead_ = rs + std::fmod(playhead_ - re, re - rs);
+            } else if (step < 0 && playhead_ <= rs) {
                 oldHead_ = playhead_;
                 xfRemain_ = xfLen_;
-                playhead_ = le - std::fmod(ls - playhead_, le - ls);
+                playhead_ = re - std::fmod(rs - playhead_, re - rs);
             }
+            if (!rollActive_) slipHead_ = playhead_;
         } else if ((step > 0 && playhead_ >= total) || (step < 0 && playhead_ <= 0)) {
-            playhead_ = step > 0 ? total : 0;
+            playhead_ = slipHead_ = step > 0 ? total : 0;
             running_ = false;
             wantPlay_.store(false);
             ended_.store(true);
@@ -324,49 +488,88 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
         }
     }
 
-    // ---- sources -> stem buses -> master -----------------------------------
+    // ---- decks -> stem buses -> master -------------------------------------
     std::fill(mixL_.begin(), mixL_.begin() + n, 0.f);
     std::fill(mixR_.begin(), mixR_.begin() + n, 0.f);
-    const int ns = t ? (int)t->sources.size() : 0;
-    const bool stemMode = ns == kNumStems;
-    bool anySolo = false;
-    if (stemMode)
-        for (int s = 0; s < kNumStems; ++s) anySolo |= params_[s].get(P_SOLO) > 0.5f;
-
-    for (int s = 0; s < ns; ++s) {
-        const PcmSource& src = *t->sources[s];
-        float* L = busL_.data();
-        float* R = busR_.data();
-        for (int i = 0; i < n; ++i) {
-            if (wNew_[i] == 0.f && wOld_[i] == 0.f) { L[i] = R[i] = 0.f; continue; }
-            float l, r;
-            src.sample(posNew_[i], l, r);
-            l *= wNew_[i];
-            r *= wNew_[i];
-            if (wOld_[i] > 0.f) {
-                float ol, orr;
-                src.sample(posOld_[i], ol, orr);
-                l += ol * wOld_[i];
-                r += orr * wOld_[i];
+    for (int s = 0; s < kNumStems; ++s) {
+        std::fill(busL_[s].begin(), busL_[s].begin() + n, 0.f);
+        std::fill(busR_[s].begin(), busR_[s].begin() + n, 0.f);
+    }
+    bool stemMode = false;
+    const int nd = t ? (int)t->decks.size() : 0;
+    for (int d = 0; d < nd; ++d) {
+        const Deck& deck = t->decks[d];
+        const double off = deck_[d][D_OFFSET].load();
+        const double ratio = deck_[d][D_RATIO].load();
+        const double fps = deck.rate * ratio;  // deck frames per timeline second
+        const float vol = deck_[d][D_VOLUME].load();
+        const float keyComp = deck_[d][D_KEYLOCK].load() > 0.5f ? (float)(-12.0 * std::log2(ratio)) : 0.f;
+        const float semis = deck_[d][D_PITCH].load() + keyComp;
+        const int ns = (int)deck.sources.size();
+        const bool stems = ns == kNumStems;
+        stemMode |= stems;
+        for (int s = 0; s < ns; ++s) {
+            const PcmSource& src = *deck.sources[s];
+            float* L = srcL_.data();
+            float* R = srcR_.data();
+            for (int i = 0; i < n; ++i) {
+                if (wNew_[i] == 0.f && wOld_[i] == 0.f) { L[i] = R[i] = 0.f; continue; }
+                float l, r;
+                src.sample((posNew_[i] - off) * fps, l, r);
+                l *= wNew_[i];
+                r *= wNew_[i];
+                if (wOld_[i] > 0.f) {
+                    float ol, orr;
+                    src.sample((posOld_[i] - off) * fps, ol, orr);
+                    l += ol * wOld_[i];
+                    r += orr * wOld_[i];
+                }
+                L[i] = l * tg_[i];
+                R[i] = r * tg_[i];
             }
-            L[i] = l * tg_[i];
-            R[i] = r * tg_[i];
+            // Per-deck stem level and key (only meaningful for stem decks).
+            const int slot = stems ? s : kNumStems - 1;
+            auto& g = deckDsp_[d].gain[slot];
+            g.setTarget((stems ? deck_[d][D_GAIN_VOCALS + s].load() : 1.f) * vol);
+            for (int i = 0; i < n; ++i) {
+                const float k = g.next();
+                L[i] *= k;
+                R[i] *= k;
+            }
+            deckDsp_[d].pitch[slot].process(L, R, n, semis);
+            float* dl = stems ? busL_[s].data() : mixL_.data();
+            float* dr = stems ? busR_[s].data() : mixR_.data();
+            for (int i = 0; i < n; ++i) {
+                dl[i] += L[i];
+                dr[i] += R[i];
+            }
         }
-        if (stemMode) {
+    }
+
+    BeatContext bc;
+    bc.beat = (running_ || tGain_.current() > 0.f) && beatKnown ? beat_.data() : nullptr;
+    bc.vocoderRoot = (int)globals_[G_VOCODER_ROOT].load();
+    bc.vocoderMinor = globals_[G_VOCODER_MINOR].load() > 0.5f;
+
+    if (stemMode) {
+        bool anySolo = false;
+        for (int s = 0; s < kNumStems; ++s) anySolo |= params_[s].get(P_SOLO) > 0.5f;
+        for (int s = 0; s < kNumStems; ++s) {
             const BusParams& p = params_[s];
             const bool audible = p.get(P_MUTE) < 0.5f && (!anySolo || p.get(P_SOLO) > 0.5f);
-            buses_[s].process(L, R, n, p, audible, 0.f);
-        }
-        for (int i = 0; i < n; ++i) {
-            mixL_[i] += L[i];
-            mixR_[i] += R[i];
+            buses_[s].process(busL_[s].data(), busR_[s].data(), n, p, audible, 0.f, bc);
+            for (int i = 0; i < n; ++i) {
+                mixL_[i] += busL_[s][i];
+                mixR_[i] += busR_[s][i];
+            }
         }
     }
 
     // Master bus. "Keep pitch" counter-shifts the varispeed pitch change.
     float extraPitch = 0.f;
     if (keepPitch_.load() && std::fabs(speed - 1.f) > 1e-3f) extraPitch = -12.f * std::log2(speed);
-    buses_[kMasterBus].process(mixL_.data(), mixR_.data(), n, params_[kMasterBus], true, extraPitch);
+    buses_[kMasterBus].process(mixL_.data(), mixR_.data(), n, params_[kMasterBus], true, extraPitch, bc);
+    sfx_.mix(mixL_.data(), mixR_.data(), n);
     limiter_.process(mixL_.data(), mixR_.data(), n);
 
     for (int i = 0; i < n; ++i) {
@@ -387,7 +590,7 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
             meter_[2 * b + 1].store(buses_[kMasterBus].peak(), std::memory_order_relaxed);
         }
     }
-    publicPos_.store(playhead_ / srcRate_, std::memory_order_relaxed);
+    publicPos_.store(rollActive_ ? slipHead_ : playhead_, std::memory_order_relaxed);
 }
 
 void StemEngine::prefetchLoop() {
@@ -397,15 +600,21 @@ void StemEngine::prefetchLoop() {
             std::lock_guard<std::mutex> lk(trackMutex_);
             Track* t = track_.load();
             if (t) {
-                const int64_t pos = (int64_t)(publicPos_.load() * srcRate_);
+                const double pos = publicPos_.load();
                 const bool rev = reverse_.load();
-                const int64_t behind = (int64_t)srcRate_ * (rev ? 6 : 1);
-                const int64_t ahead = (int64_t)srcRate_ * (rev ? 1 : 6);
-                for (auto& s : t->sources) {
-                    s->prefetch(pos - behind, behind + ahead);
-                    if (loopOn_.load()) {
-                        const int64_t ls = (int64_t)(loopStart_.load() * srcRate_);
-                        s->prefetch(ls - srcRate_ / 2, (int64_t)srcRate_ * 2);
+                for (size_t d = 0; d < t->decks.size(); ++d) {
+                    const auto& deck = t->decks[d];
+                    const double fps = deck.rate * deck_[d][D_RATIO].load();
+                    const int64_t p = (int64_t)((pos - deck_[d][D_OFFSET].load()) * fps);
+                    const int64_t sec = (int64_t)fps;
+                    const int64_t behind = sec * (rev ? 6 : 1);
+                    const int64_t ahead = sec * (rev ? 1 : 6);
+                    for (auto& s : deck.sources) {
+                        s->prefetch(p - behind, behind + ahead);
+                        if (loopOn_.load()) {
+                            const int64_t ls = (int64_t)((loopStart_.load() - deck_[d][D_OFFSET].load()) * fps);
+                            s->prefetch(ls - sec / 2, sec * 2);
+                        }
                     }
                 }
             }

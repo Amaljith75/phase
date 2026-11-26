@@ -126,13 +126,14 @@ class SeparationWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
             }
             download.deleteRecursively()
             if (!storage.hasAllStems(trackId)) throw SeparationException("Stems were not written")
-            val bpm = runCatching { BpmDetector.detect(storage.stemPcm(trackId, Bus.DRUMS), rate) }.getOrNull()
+            val tempo = runCatching { BpmDetector.analyze(storage.stemPcm(trackId, Bus.DRUMS), rate) }.getOrNull()
             val fresh = dao.get(trackId) ?: return Result.failure()
             dao.update(
                 fresh.copy(
                     status = TrackStatus.SEPARATED, progress = 1f, statusMessage = null,
                     stemSampleRate = rate, separationModel = if (onDevice) "htdemucs (on-device)" else settings.separationModel,
-                    bpm = bpm ?: fresh.bpm,
+                    bpm = tempo?.bpm ?: fresh.bpm,
+                    beatOffset = tempo?.beatOffset ?: fresh.beatOffset,
                 ),
             )
             Result.success()

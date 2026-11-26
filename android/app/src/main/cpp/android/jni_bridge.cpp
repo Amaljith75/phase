@@ -120,3 +120,33 @@ JNI(jboolean, nExport)(JNIEnv* env, jobject, jstring path, jstring format, jint 
 }
 JNI(jfloat, nExportProgress)(JNIEnv*, jobject) { return gExportProgress.load(); }
 JNI(void, nCancelExport)(JNIEnv*, jobject) { gExportCancel.store(true); }
+
+// ---- mashup decks & performance -------------------------------------------
+// paths: all files, deck by deck; counts[d] = files in deck d; rates[d] = its rate.
+JNI(jboolean, nLoadDecks)(JNIEnv* env, jobject, jobjectArray paths, jintArray counts, jintArray rates) {
+    const jsize nd = env->GetArrayLength(counts);
+    std::vector<jint> c(nd), r(nd);
+    env->GetIntArrayRegion(counts, 0, nd, c.data());
+    env->GetIntArrayRegion(rates, 0, nd, r.data());
+    std::vector<DeckSpec> decks;
+    int k = 0;
+    for (jsize d = 0; d < nd; ++d) {
+        DeckSpec spec;
+        spec.sampleRate = r[d];
+        for (int i = 0; i < c[d]; ++i, ++k) {
+            auto js = (jstring)env->GetObjectArrayElement(paths, k);
+            spec.paths.push_back(str(env, js));
+            env->DeleteLocalRef(js);
+        }
+        decks.push_back(std::move(spec));
+    }
+    std::string err;
+    bool ok = engine().loadDecks(decks, &err);
+    if (!ok) gLastError = err;
+    return ok;
+}
+JNI(jint, nDeckCount)(JNIEnv*, jobject) { return engine().deckCount(); }
+JNI(void, nSetDeckParam)(JNIEnv*, jobject, jint deck, jint id, jfloat v) { engine().setDeckParam(deck, id, v); }
+JNI(void, nSetGlobal)(JNIEnv*, jobject, jint id, jfloat v) { engine().setGlobal(id, v); }
+JNI(void, nTriggerSfx)(JNIEnv*, jobject, jint pad) { engine().triggerSfx(pad); }
+JNI(void, nBrake)(JNIEnv*, jobject) { engine().brake(); }

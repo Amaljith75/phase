@@ -45,6 +45,8 @@ data class TrackEntity(
     val statusMessage: String? = null,
     val separationModel: String? = null,
     val bpm: Float? = null,
+    /** Seconds of the first beat (beat grid phase), when known. */
+    @androidx.room.ColumnInfo(defaultValue = "0") val beatOffset: Float = 0f,
     val lyricsLrc: String? = null,
     val lastMixJson: String? = null,
     val sizeBytes: Long = 0,
@@ -125,8 +127,8 @@ interface TrackDao {
     @Query("UPDATE tracks SET lyricsLrc = :lrc WHERE id = :id")
     suspend fun saveLyrics(id: String, lrc: String?)
 
-    @Query("UPDATE tracks SET bpm = :bpm WHERE id = :id")
-    suspend fun saveBpm(id: String, bpm: Float?)
+    @Query("UPDATE tracks SET bpm = :bpm, beatOffset = :beatOffset WHERE id = :id")
+    suspend fun saveTempo(id: String, bpm: Float?, beatOffset: Float)
 
     @Query("DELETE FROM tracks WHERE id = :id")
     suspend fun delete(id: String)
@@ -162,6 +164,32 @@ interface PresetDao {
     suspend fun delete(id: String)
 }
 
+/** A mashup: several separated songs layered on one beat-synced timeline. */
+@Entity(tableName = "mashups")
+data class MashupEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val decksJson: String,
+    val mixJson: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Dao
+interface MashupDao {
+    @Query("SELECT * FROM mashups ORDER BY updatedAt DESC")
+    fun all(): Flow<List<MashupEntity>>
+
+    @Query("SELECT * FROM mashups WHERE id = :id")
+    suspend fun get(id: String): MashupEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(m: MashupEntity)
+
+    @Query("DELETE FROM mashups WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
 @Dao
 interface ExportDao {
     @Query("SELECT * FROM exports ORDER BY createdAt DESC")
@@ -178,8 +206,8 @@ interface ExportDao {
 }
 
 @Database(
-    entities = [TrackEntity::class, ProjectEntity::class, PresetEntity::class, ExportEntity::class],
-    version = 1,
+    entities = [TrackEntity::class, ProjectEntity::class, PresetEntity::class, ExportEntity::class, MashupEntity::class],
+    version = 2,
     exportSchema = true,
 )
 abstract class PhaseDatabase : RoomDatabase() {
@@ -187,8 +215,21 @@ abstract class PhaseDatabase : RoomDatabase() {
     abstract fun projects(): ProjectDao
     abstract fun presets(): PresetDao
     abstract fun exports(): ExportDao
+    abstract fun mashups(): MashupDao
 
     companion object {
-        fun create(context: Context) = Room.databaseBuilder(context, PhaseDatabase::class.java, "phase.db").build()
+        private val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN beatOffset REAL NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `mashups` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `decksJson` TEXT NOT NULL, " +
+                        "`mixJson` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+            }
+        }
+
+        fun create(context: Context) = Room.databaseBuilder(context, PhaseDatabase::class.java, "phase.db")
+            .addMigrations(MIGRATION_1_2)
+            .build()
     }
 }

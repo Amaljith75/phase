@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Loop
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MoreVert
@@ -99,7 +100,7 @@ import app.phase.stem.ui.theme.PhaseType
 import kotlinx.coroutines.launch
 
 @Composable
-fun PlayerScreen(onBack: () -> Unit, onLyrics: () -> Unit, onEffects: (Bus) -> Unit) {
+fun PlayerScreen(onBack: () -> Unit, onLyrics: () -> Unit, onEffects: (Bus) -> Unit, onMashup: () -> Unit) {
     val graph = LocalGraph.current
     val player = graph.player
     val state by player.state.collectAsState()
@@ -148,9 +149,11 @@ fun PlayerScreen(onBack: () -> Unit, onLyrics: () -> Unit, onEffects: (Bus) -> U
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = PhaseColors.Mist) }
             TrackArt(track, Modifier.size(40.dp), corner = 10.dp)
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                Text(track.title, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(state.title ?: track.title, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    listOfNotNull(track.artist, state.projectName?.let { "◆ $it" }).joinToString("  ").ifBlank { if (state.stemMode) "4 STEMS" else "FULL MIX" },
+                    (state.mashup?.let { m -> "MASHUP · ${m.decks.size} SONGS" + (m.bpm?.let { " · %.0f BPM".format(it) } ?: "") }
+                        ?: listOfNotNull(track.artist, state.projectName?.let { "◆ $it" }).joinToString("  "))
+                        .ifBlank { if (state.stemMode) "4 STEMS" else "FULL MIX" },
                     style = PhaseType.labelSmall, color = PhaseColors.Steel, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -177,7 +180,7 @@ fun PlayerScreen(onBack: () -> Unit, onLyrics: () -> Unit, onEffects: (Bus) -> U
         // Square instrument that also fits landscape tablets (Android 16
         // ignores orientation locks on large screens).
         val cfg = androidx.compose.ui.platform.LocalConfiguration.current
-        val side = minOf(cfg.screenWidthDp - 32, (cfg.screenHeightDp * 0.5f).toInt()).dp
+        val side = minOf(cfg.screenWidthDp - 32, (cfg.screenHeightDp * 0.45f).toInt()).dp
         Box(Modifier.align(Alignment.CenterHorizontally).size(side).padding(vertical = 8.dp)) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf(listOf(Bus.VOCALS to PadCorner.TopStart, Bus.DRUMS to PadCorner.TopEnd), listOf(Bus.BASS to PadCorner.BottomStart, Bus.OTHER to PadCorner.BottomEnd)).forEach { row ->
@@ -228,34 +231,40 @@ fun PlayerScreen(onBack: () -> Unit, onLyrics: () -> Unit, onEffects: (Bus) -> U
         )
         Spacer(Modifier.height(10.dp))
 
-        // ---- transport keys --------------------------------------------------
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // ---- transport keys: five equal slots that always fit ----------------
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            val k = Modifier.weight(1f)
             HardwareKey(
                 when {
-                    mix.loopOn -> "LOOP ON"
+                    mix.loopOn -> "LOOP"
                     mix.loopB == -1.0 -> "SET B"
                     else -> "A/B"
                 },
-                icon = Icons.Rounded.Loop, active = mix.loopOn || mix.loopB == -1.0, color = stemColor(Bus.VOCALS),
+                k, icon = Icons.Rounded.Loop, active = mix.loopOn || mix.loopB == -1.0, color = stemColor(Bus.VOCALS), compact = true,
             ) { player.abLoopTap() }
-            HardwareKey("%.2fx".format(mix.speed), icon = Icons.Rounded.Speed, active = mix.speed != 1f) { showSpeed = true }
-            HardwareKey("REV", icon = Icons.Rounded.SwapHoriz, active = mix.reverse, color = stemColor(Bus.OTHER)) { player.setReverse(!mix.reverse) }
+            HardwareKey("%.2fx".format(mix.speed), k, icon = Icons.Rounded.Speed, active = mix.speed != 1f, compact = true) { showSpeed = true }
+            HardwareKey("REV", k, icon = Icons.Rounded.SwapHoriz, active = mix.reverse, color = stemColor(Bus.OTHER), compact = true) {
+                player.setReverse(!mix.reverse)
+            }
+            val bpm = tappedBpm ?: state.mashup?.bpm ?: track.bpm
+            HardwareKey(bpm?.let { "%.0f".format(it) + (if (tappedBpm != null) " TAP" else " BPM") } ?: "TAP", k,
+                active = tappedBpm != null, compact = true) { tappedBpm = tap.tap(System.currentTimeMillis()) }
             HardwareKey(
-                tappedBpm?.let { "TAP %.1f".format(it) } ?: (track.bpm?.let { "%.1f BPM".format(it) } ?: "TAP"),
-                active = tappedBpm != null,
-            ) { tappedBpm = tap.tap(System.currentTimeMillis()) }
-            HardwareKey(
-                if (state.recording) "REC ${formatTime(state.recordSeconds)}" else "REC",
-                icon = Icons.Rounded.FiberManualRecord, active = state.recording, color = PhaseColors.Danger,
+                if (state.recording) formatTime(state.recordSeconds) else "REC",
+                k, icon = Icons.Rounded.FiberManualRecord, active = state.recording, color = PhaseColors.Danger, compact = true,
             ) { if (state.recording) player.stopRecording() else player.startRecording() }
         }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(10.dp))
+
+        // ---- performance deck: modes, DJ, EDM, sound pads ---------------------
+        PerformancePanel(Modifier.weight(1f).fillMaxWidth())
 
         // ---- bottom navigation keys -----------------------------------------
-        Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HardwareKey("LYRICS", Modifier.weight(1f), icon = Icons.Rounded.Lyrics) { onLyrics() }
-            HardwareKey("FX STUDIO", Modifier.weight(1f), icon = Icons.Rounded.Tune) { onEffects(if (state.stemMode) Bus.VOCALS else Bus.MASTER) }
-            HardwareKey("EXPORT", Modifier.weight(1f), icon = Icons.Rounded.IosShare) { showExport = true }
+        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            HardwareKey("LYRICS", Modifier.weight(1f), icon = Icons.Rounded.Lyrics, compact = true) { onLyrics() }
+            HardwareKey("FX", Modifier.weight(1f), icon = Icons.Rounded.Tune, compact = true) { onEffects(if (state.stemMode) Bus.VOCALS else Bus.MASTER) }
+            HardwareKey("MASHUP", Modifier.weight(1f), icon = Icons.Rounded.Layers, compact = true, active = state.mashup != null) { onMashup() }
+            HardwareKey("EXPORT", Modifier.weight(1f), icon = Icons.Rounded.IosShare, compact = true) { showExport = true }
         }
     }
 
