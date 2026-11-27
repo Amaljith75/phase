@@ -120,7 +120,9 @@ jobs:
           fi
       - name: Tests
         working-directory: android
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :separation:test
+        # Retries cover transient plugin/dependency download failures on runners.
+        run: |
+          for i in 1 2 3; do ./gradlew --no-daemon :app:testDebugUnitTest :separation:test && exit 0; sleep 30; done; exit 1
       - name: Release APKs (per ABI) + App Bundle
         working-directory: android
         run: |
