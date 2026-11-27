@@ -1,6 +1,7 @@
 package app.phase.stem.ui.mashup
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -138,12 +139,28 @@ fun MashupScreen(mashupId: String?, seedTrackId: String?, onBack: () -> Unit, on
     var confirmDelete by remember { mutableStateOf(false) }
     // Live stem activity for the pads' glow.
     val levels = remember { List(5) { mutableFloatStateOf(0f) } }
+    // Seconds each paused song has been held back (to draw it where it really is).
+    val holds = remember { List(MashupState.MAX_DECKS) { mutableFloatStateOf(0f) } }
     LaunchedEffect(Unit) {
         val buf = FloatArray(10)
         while (true) {
             withFrameNanos { }
             NativeEngine.nMeters(buf)
             for (i in 0 until 5) levels[i].floatValue = buf[i * 2]
+            for (i in 0 until MashupState.MAX_DECKS) holds[i].floatValue = NativeEngine.nDeckHold(i).toFloat()
+        }
+    }
+    val allTracks by graph.db.tracks().all().collectAsState(initial = emptyList())
+    val lengths = allTracks.associate { it.id to (it.durationMs / 1000f).coerceAtLeast(1f) }
+    // One shared timeline scale for every song bar; frozen while dragging.
+    var dragging by remember { mutableStateOf(false) }
+    var scale by remember { mutableFloatStateOf(60f) }
+    state.mashup?.let { mm ->
+        if (!dragging) {
+            val end = mm.decks.indices.maxOfOrNull { i ->
+                mm.offsetSeconds(i) + holds[i].floatValue + mm.regionSeconds(i, lengths[mm.decks[i].trackId] ?: 1f)
+            } ?: 60f
+            scale = (kotlin.math.ceil((end + 20f) / 30f) * 30f).coerceAtLeast(60f)
         }
     }
     Column(Modifier.fillMaxSize().background(PhaseColors.background).statusBarsPadding().navigationBarsPadding()) {
@@ -171,7 +188,10 @@ fun MashupScreen(mashupId: String?, seedTrackId: String?, onBack: () -> Unit, on
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 item { MasterStrip(m, state.position, state.duration) }
                 itemsIndexed(m.decks, key = { i, d -> "$i-${d.trackId}" }) { i, d ->
-                    DeckSection(m, i, d, state.position, levels, onEffects)
+                    DeckSection(
+                        m, i, d, state.position, levels, onEffects,
+                        TimelineInfo(scale, holds[i].floatValue, lengths[d.trackId] ?: 1f) { dragging = it },
+                    )
                 }
                 if (m.decks.size < MashupState.MAX_DECKS) item {
                     HardwareKey(
@@ -238,6 +258,7 @@ private fun DeckSection(
     position: Double,
     levels: List<androidx.compose.runtime.MutableFloatState>,
     onEffects: (Bus) -> Unit,
+    timeline: TimelineInfo,
 ) {
     val graph = LocalGraph.current
     val player = graph.player
@@ -249,7 +270,23 @@ private fun DeckSection(
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         // Song header
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(color), contentAlignment = Alignment.Center) {
+            // This song's own play/pause: paused songs hold their place and drop back in on the beat.
+            val haptics = rememberHaptics()
+            Box(
+                Modifier.size(40.dp).clip(CircleShape)
+                    .background(if (d.playing) color else Color(0xFF1B1B21))
+                    .border(2.dp, color, CircleShape)
+                    .clickable { haptics.confirm(); player.toggleDeck(index) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (d.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    if (d.playing) "Pause song ${'A' + index}" else "Play song ${'A' + index}",
+                    tint = if (d.playing) PhaseColors.Void else color,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).background(color), contentAlignment = Alignment.Center) {
                 Text(('A' + index).toString(), style = PhaseType.label, color = PhaseColors.Void)
             }
             Spacer(Modifier.width(8.dp))
@@ -310,106 +347,157 @@ private fun DeckSection(
             }
         }
         Spacer(Modifier.height(8.dp))
-        SongBar(m, index, d, track, ratio, position, color) { f -> edit(f) }
+        TimelineBar(m, index, d, ratio, position, color, timeline) { f -> edit(f) }
     }
 }
 
+/** Shared timeline scale + this song's live state, for its bar. */
+class TimelineInfo(val scaleSec: Float, val holdSec: Float, val songLength: Float, val onDrag: (Boolean) -> Unit)
+
 /**
- * The song's own waveform. Drag the two handles to choose which part of the
- * song plays; tap to jump the mashup there; move its start by bars.
+ * This song on the shared mashup timeline (all bars use the same scale, so
+ * they line up vertically). Drag the middle to move the song in time
+ * (snaps to beats), drag either edge to trim it, tap to jump there. The
+ * white line is the playhead; faint lines mark bars.
  */
 @Composable
-private fun SongBar(
+private fun TimelineBar(
     m: MashupState,
     index: Int,
     d: DeckState,
-    track: TrackEntity?,
     ratio: Float,
     position: Double,
     color: Color,
+    tl: TimelineInfo,
     edit: ((DeckState) -> DeckState) -> Unit,
 ) {
     val graph = LocalGraph.current
     val player = graph.player
     val haptics = rememberHaptics()
-    val len = ((track?.durationMs ?: 0L) / 1000f).coerceAtLeast(1f)
+    val len = tl.songLength
     val peaks by produceState(FloatArray(0), d.trackId) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            AudioDecoder.loadPeaks(graph.storage.mixPeaks(d.trackId), 160)
+            AudioDecoder.loadPeaks(graph.storage.mixPeaks(d.trackId), 400)
         }
     }
     val inS = d.trimIn.coerceIn(0f, len)
     val outS = if (d.trimOut > inS) d.trimOut.coerceAtMost(len) else len
-    val off = m.offsetSeconds(index)
-    val songPos = inS + ((position - off) * ratio).toFloat()
-    val playing = songPos in inS..outS && position >= off
-    val cur by rememberUpdatedState(Triple(inS, outS, len))
+    val start = m.offsetSeconds(index) + tl.holdSec          // timeline time where the region starts
+    val regionLen = (outS - inS) / ratio
+    val period = m.beatPeriod
+    val S = tl.scaleSec
+    val latest by rememberUpdatedState(Triple(d, start, S))
 
     Canvas(
-        Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF111116))
+        Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF0E0E12))
             .pointerInput(d.trackId) {
                 detectTapGestures { o ->
-                    val (a, b, l) = cur
-                    val t = (o.x / size.width * l).coerceIn(a, b)
                     haptics.tick()
-                    player.seek((off + (t - a) / ratio).toDouble().coerceAtLeast(0.0))
+                    player.seek((o.x / size.width * latest.third).toDouble())
                 }
             }
             .pointerInput(d.trackId) {
-                var dragIn = true
+                val edge = 22.dp.toPx()
+                var mode = 0 // 0 move, 1 trim in, 2 trim out
+                var startDeck = d
+                var sx = 0f
+                var lastStep = 0
                 detectHorizontalDragGestures(
                     onDragStart = { o ->
-                        val (a, b, l) = cur
-                        val x = o.x / size.width * l
-                        dragIn = kotlin.math.abs(x - a) <= kotlin.math.abs(x - b)
+                        val (dd, st, sc) = latest
+                        startDeck = dd
+                        sx = o.x
+                        lastStep = 0
+                        val ddIn = dd.trimIn.coerceIn(0f, len)
+                        val ddOut = if (dd.trimOut > ddIn) dd.trimOut.coerceAtMost(len) else len
+                        val x0 = st / sc * size.width
+                        val x1 = (st + (ddOut - ddIn) / ratio) / sc * size.width
+                        mode = when {
+                            kotlin.math.abs(o.x - x0) < edge -> 1
+                            kotlin.math.abs(o.x - x1) < edge -> 2
+                            else -> 0
+                        }
+                        tl.onDrag(true)
                         haptics.tick()
                     },
+                    onDragEnd = { tl.onDrag(false) },
+                    onDragCancel = { tl.onDrag(false) },
                 ) { change, _ ->
                     change.consume()
-                    val (a, b, l) = cur
-                    val t = (change.position.x / size.width * l).coerceIn(0f, l)
-                    val snapped = (t * 10).roundToInt() / 10f
-                    if (dragIn) edit { it.copy(trimIn = snapped.coerceAtMost(b - 2f).coerceAtLeast(0f)) }
-                    else edit { it.copy(trimOut = if (snapped >= l - 0.15f) 0f else snapped.coerceAtLeast(a + 2f)) }
+                    val sc = latest.third
+                    val dt = (change.position.x - sx) / size.width * sc   // seconds on the timeline
+                    val sd = startDeck
+                    val sdIn = sd.trimIn.coerceIn(0f, len)
+                    val sdOut = if (sd.trimOut > sdIn) sd.trimOut.coerceAtMost(len) else len
+                    when (mode) {
+                        0 -> { // move the whole song, snapped to beats
+                            val steps = kotlin.math.round(dt / period).toInt()
+                            if (steps != lastStep) { haptics.tick(); lastStep = steps }
+                            edit { it.copy(startBeats = sd.startBeats + steps) }
+                        }
+                        1 -> { // trim the start; the rest of the song stays where it is
+                            val newIn = (sdIn + dt * ratio).coerceIn(0f, sdOut - 2f)
+                            val keep = kotlin.math.round(((newIn - sdIn) / ratio) / period).toInt()
+                            edit { it.copy(trimIn = (newIn * 10).roundToInt() / 10f, startBeats = sd.startBeats + keep) }
+                        }
+                        else -> { // trim the end
+                            val newOut = (sdOut + dt * ratio).coerceIn(sdIn + 2f, len)
+                            edit { it.copy(trimOut = if (newOut >= len - 0.15f) 0f else (newOut * 10).roundToInt() / 10f) }
+                        }
+                    }
                 }
             },
     ) {
         val w = size.width
         val h = size.height
-        val x0 = inS / len * w
-        val x1 = outS / len * w
-        drawRect(color.copy(alpha = 0.12f), Offset(x0, 0f), Size(x1 - x0, h))
-        if (peaks.isNotEmpty()) {
-            val bw = w / peaks.size
-            peaks.forEachIndexed { i, v ->
-                val x = i * bw
-                val inside = x in x0..x1
-                val bh = h * 0.8f * v.coerceAtLeast(0.03f)
-                drawRect(if (inside) color.copy(alpha = 0.85f) else PhaseColors.Edge, Offset(x, (h - bh) / 2), Size(bw * 0.6f, bh))
+        fun x(t: Float) = t / S * w
+        // Bar lines every 4 beats.
+        if (m.bpm != null) {
+            var t = m.gridOffset
+            var k = 0
+            while (t < S) {
+                if (k % 4 == 0) drawLine(Color(0x22FFFFFF), Offset(x(t), 0f), Offset(x(t), h), 1f)
+                t += period; k++
             }
         }
-        // Trim handles
-        listOf(x0, x1).forEach { x ->
-            drawRect(PhaseColors.Chrome, Offset(x - 2f, 0f), Size(4f, h))
-            drawCircle(PhaseColors.Chrome, 7f, Offset(x, h / 2))
+        // Whole song (faint) and the part that plays (bright).
+        val songStart = start - inS / ratio
+        if (peaks.isNotEmpty()) {
+            val n = peaks.size
+            val bw = (x(songStart + len / ratio) - x(songStart)) / n
+            for (i in 0 until n) {
+                val songT = i.toFloat() / n * len
+                val px = x(songStart + songT / ratio)
+                if (px < -bw || px > w) continue
+                val inside = songT in inS..outS
+                val bh = h * 0.78f * peaks[i].coerceAtLeast(0.03f)
+                drawRect(
+                    if (inside) color.copy(alpha = if (d.playing) 0.9f else 0.4f) else Color(0x1FFFFFFF),
+                    Offset(px, (h - bh) / 2), Size(maxOf(1f, bw * 0.7f), bh),
+                )
+            }
         }
-        if (playing) {
-            val px = songPos / len * w
-            drawLine(Color.White, Offset(px, 0f), Offset(px, h), 3f)
+        val x0 = x(start)
+        val x1 = x(start + regionLen)
+        drawRect(color.copy(alpha = 0.10f), Offset(x0, 0f), Size(x1 - x0, h))
+        drawRect(color, Offset(x0, 0f), Size(x1 - x0, h), style = androidx.compose.ui.graphics.drawscope.Stroke(2f))
+        // Edge handles
+        listOf(x0, x1).forEach { hx ->
+            drawRoundRect(PhaseColors.Chrome, Offset(hx - 4f, h * 0.25f), Size(8f, h * 0.5f), androidx.compose.ui.geometry.CornerRadius(4f, 4f))
         }
+        // Playhead (same x on every song bar)
+        val px = x(position.toFloat())
+        drawLine(Color.White, Offset(px, 0f), Offset(px, h), 3f)
     }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-        Text("${formatTime(inS.toDouble())} → ${formatTime(outS.toDouble())}", style = PhaseType.labelSmall, color = PhaseColors.Mist, modifier = Modifier.weight(1f))
-        if (index > 0) {
-            Text("START", style = PhaseType.labelSmall, color = PhaseColors.Steel)
-            Spacer(Modifier.width(6.dp))
-            HardwareKey("◀ BAR", compact = true) { edit { it.copy(startBeats = it.startBeats - 4) } }
-            Text(
-                "%+d".format(d.startBeats / 4), style = PhaseType.readout, color = PhaseColors.Chrome,
-                textAlign = TextAlign.Center, modifier = Modifier.width(30.dp),
-            )
-            HardwareKey("BAR ▶", compact = true) { edit { it.copy(startBeats = it.startBeats + 4) } }
-        }
+        Text(
+            "IN AT ${formatTime(start.toDouble())} · PLAYS ${formatTime(inS.toDouble())}–${formatTime(outS.toDouble())}" +
+                if (!d.playing) " · PAUSED" else "",
+            style = PhaseType.labelSmall, color = if (d.playing) PhaseColors.Mist else color, modifier = Modifier.weight(1f),
+        )
+        HardwareKey("◀", compact = true) { edit { it.copy(startBeats = it.startBeats - 4) } }
+        Spacer(Modifier.width(4.dp))
+        HardwareKey("▶", compact = true) { edit { it.copy(startBeats = it.startBeats + 4) } }
     }
 }
 

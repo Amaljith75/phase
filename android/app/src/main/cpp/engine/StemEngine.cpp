@@ -10,7 +10,7 @@ namespace {
 float deckDefault(int id) {
     switch (id) {
         case D_OFFSET: case D_PITCH: case D_TRIM_IN: case D_TRIM_OUT: return 0.f;
-        default: return 1.f;  // gains, volume, ratio, keylock
+        default: return 1.f;  // gains, volume, ratio, keylock, playing
     }
 }
 float clampDeck(int id, float v) {
@@ -112,6 +112,7 @@ StemEngine::StemEngine() {
     for (auto& m : meter_) m.store(0.f);
     for (auto& d : deck_) for (int i = 0; i < D_COUNT; ++i) d[i].store(deckDefault(i));
     for (auto& g : globals_) g.store(0.f);
+    for (auto& h : deckHoldPub_) h.store(0);
     globals_[G_VOCODER_ROOT].store(48.f);
     globals_[G_VOCODER_MINOR].store(1.f);
     prepare(48000);
@@ -135,6 +136,7 @@ void StemEngine::prepare(int sr) {
     wOld_.assign(kChunk, 0);
     tg_.assign(kChunk, 0);
     beat_.assign(kChunk, 0);
+    step_.assign(kChunk, 0);
     for (int s = 0; s < kNumStems; ++s) {
         busL_[s].assign(kChunk, 0);
         busR_[s].assign(kChunk, 0);
@@ -151,6 +153,8 @@ void StemEngine::prepare(int sr) {
             d.gain[s].snap(1.f);
             d.pitch[s].prepare((float)outRate_);
         }
+        d.fade.prepare((float)outRate_, 4.f);
+        d.fade.snap(d.on ? 1.f : 0.f);
     }
     limiter_.prepare((float)outRate_);
     sfx_.prepare((float)outRate_);
@@ -204,7 +208,14 @@ bool StemEngine::loadDecks(const std::vector<DeckSpec>& specs, std::string* err)
         buses_[i].reset();
         buses_[i].snapGain(params_[i], true);
     }
-    for (auto& d : deckDsp_) for (int s = 0; s < kNumStems; ++s) { d.gain[s].snap(1.f); d.pitch[s].reset(); }
+    for (auto& d : deckDsp_) {
+        for (int s = 0; s < kNumStems; ++s) { d.gain[s].snap(1.f); d.pitch[s].reset(); }
+        d.hold = 0;
+        d.on = true;
+        d.pending = false;
+        d.fade.snap(1.f);
+    }
+    for (auto& h : deckHoldPub_) h.store(0);
     swapping_.store(false);
     recomputeDuration();
     delete old;
@@ -395,7 +406,9 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
     const float speed = speed_.load();
     const bool reverse = reverse_.load();
     const double baseStep = speed * (reverse ? -1.0 : 1.0) / outRate_;
-    const double total = duration_.load();
+    double maxHold = 0;
+    for (int d = 0; d < kMaxDecks; ++d) maxHold = std::max(maxHold, deckDsp_[d].hold);
+    const double total = duration_.load() + maxHold;
     double ls = loopStart_.load(), le = std::min(loopEnd_.load(), total);
     const bool loopActive = loopOn_.load() && (le - ls) > 0.05;
     const float bpmRaw = globals_[G_BPM].load();
@@ -427,6 +440,7 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
             tg_[i] = 0.f;
             wNew_[i] = wOld_[i] = 0.f;
             beat_[i] = 0.f;
+            step_[i] = 0.0;
             continue;
         }
         tg_[i] = tGain_.next();
@@ -442,11 +456,13 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
                 xfRemain_ = 0;
                 tg_[i] = 0.f;
                 wNew_[i] = wOld_[i] = 0.f;
+                step_[i] = 0.0;
                 continue;
             }
             stepMul = brakeMul_ * brakeMul_;
         }
         const double step = baseStep * stepMul;
+        step_[i] = step;
         posNew_[i] = playhead_;
         if (xfRemain_ > 0) {
             const float x = 1.f - (float)xfRemain_ / (float)xfLen_;
@@ -502,8 +518,36 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
     }
     bool stemMode = false;
     const int nd = t ? (int)t->decks.size() : 0;
+    const double beatPeriod = 1.0 / bps;
     for (int d = 0; d < nd; ++d) {
         const Deck& deck = t->decks[d];
+        // Per-deck play/pause. A paused deck holds its place: its timeline
+        // delay grows while the clock runs. Restarting waits for the next
+        // beat and rounds the delay to whole beats, so it drops in on time.
+        DeckDsp& dd = deckDsp_[d];
+        const bool want = deck_[d][D_PLAYING].load() > 0.5f;
+        if (!want) { dd.on = false; dd.pending = false; }
+        else if (!dd.on && !dd.pending) {
+            if (beatKnown && running_) dd.pending = true;
+            else { dd.on = true; if (beatKnown) dd.hold = std::round(dd.hold / beatPeriod) * beatPeriod; }
+        }
+        double holdAt[kChunk];
+        float fadeAt[kChunk];
+        float prevBeat = lastBeat_;
+        for (int i = 0; i < n; ++i) {
+            if (dd.pending && step_[i] != 0.0 && beat_[i] < prevBeat) {
+                dd.pending = false;
+                dd.on = true;
+                dd.hold = std::round(dd.hold / beatPeriod) * beatPeriod;
+            }
+            if (step_[i] != 0.0) prevBeat = beat_[i];
+            dd.fade.setTarget(dd.on ? 1.f : 0.f);
+            fadeAt[i] = dd.fade.next();
+            // Freeze only once faded out, so the fade itself plays real audio.
+            if (!dd.on && fadeAt[i] < 1e-4f) dd.hold += step_[i];
+            holdAt[i] = dd.hold;
+        }
+        deckHoldPub_[d].store(dd.hold, std::memory_order_relaxed);
         const double off = deck_[d][D_OFFSET].load();
         const double ratio = deck_[d][D_RATIO].load();
         const double fps = deck.rate * ratio;  // deck frames per timeline second
@@ -524,14 +568,15 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
             for (int i = 0; i < n; ++i) {
                 if (wNew_[i] == 0.f && wOld_[i] == 0.f) { L[i] = R[i] = 0.f; continue; }
                 float l = 0, r = 0;
-                const double pn = (posNew_[i] - off) * fps + inF;
+                if (fadeAt[i] <= 0.f) { L[i] = R[i] = 0.f; continue; }
+                const double pn = (posNew_[i] - off - holdAt[i]) * fps + inF;
                 if (pn >= inF && pn < outF) {
                     src.sample(pn, l, r);
                     l *= wNew_[i];
                     r *= wNew_[i];
                 }
                 if (wOld_[i] > 0.f) {
-                    const double po = (posOld_[i] - off) * fps + inF;
+                    const double po = (posOld_[i] - off - holdAt[i]) * fps + inF;
                     if (po >= inF && po < outF) {
                         float ol, orr;
                         src.sample(po, ol, orr);
@@ -539,8 +584,8 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
                         r += orr * wOld_[i];
                     }
                 }
-                L[i] = l * tg_[i];
-                R[i] = r * tg_[i];
+                L[i] = l * tg_[i] * fadeAt[i];
+                R[i] = r * tg_[i] * fadeAt[i];
             }
             // Per-deck stem level and key (only meaningful for stem decks).
             const int slot = stems ? s : kNumStems - 1;
@@ -560,6 +605,8 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
             }
         }
     }
+
+    for (int i = n - 1; i >= 0; --i) if (step_[i] != 0.0) { lastBeat_ = beat_[i]; break; }
 
     BeatContext bc;
     bc.beat = (running_ || tGain_.current() > 0.f) && beatKnown ? beat_.data() : nullptr;

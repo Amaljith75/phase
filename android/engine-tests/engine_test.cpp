@@ -311,6 +311,48 @@ int main() {
         CHECK(maxErr < 3e-4 && tail < 1e-6, "trim in/out plays exactly the chosen region");
     }
 
+    std::printf("[decks] per-song play/pause drops in on the beat\n");
+    {
+        StemEngine e;
+        e.prepare(sr);
+        std::string err;
+        e.loadDecks({DeckSpec{stems, sr}, DeckSpec{stems, sr}}, &err);
+        e.setGlobal(G_BPM, 120);  // beat = 0.5 s
+        e.setDeckParam(0, D_VOLUME, 0.f);  // listen to deck 1 only
+        e.snapSmoothers();
+        e.setPlaying(true);
+        renderSeconds(e, 1.0);
+        e.setDeckParam(1, D_PLAYING, 0.f);
+        auto paused = renderSeconds(e, 1.3);
+        float pk = 0;
+        for (size_t i = 2 * (sr / 20); i < paused.size(); ++i) pk = std::max(pk, std::fabs(paused[i]));
+        CHECK(pk < 1e-6f, "paused song is silent");
+        // At t = 2.3 s, press play: next beat is t = 2.5 s.
+        e.setDeckParam(1, D_PLAYING, 1.f);
+        auto out = renderSeconds(e, 1.0);
+        const double hold = e.deckHold(1);
+        std::printf("    held %.4f s (whole beats: %.2f)\n", hold, hold / 0.5);
+        CHECK(std::fabs(hold / 0.5 - std::round(hold / 0.5)) < 1e-9 && hold >= 1.0 && hold <= 1.5,
+              "hold rounds to whole beats, keeping the song on the grid");
+        int first = -1;
+        for (int i = 0; i < sr; ++i) if (std::fabs(out[2 * i]) > 1e-4f) { first = i; break; }
+        std::printf("    song re-entered %.4f s after pressing play\n", first / (double)sr);
+        CHECK(first > 0 && std::fabs(first / (double)sr - 0.2) < 0.003, "re-entry lands on the next beat (t = 2.5 s)");
+        // Content resumes from the held place: at timeline t it plays song time t - hold.
+        double maxErr = 0;
+        auto sig = [](int i) -> double {
+            if (i < 0) return 0;
+            return 0.1 * std::sin(2 * M_PI * 440 * i / 44100.0) + ((i % 11025 < 200) ? 0.2 : 0.0) +
+                   0.1 * std::sin(2 * M_PI * 55 * i / 44100.0) + 0.05 * std::sin(2 * M_PI * 880 * i / 44100.0);
+        };
+        for (int i = (int)(0.25 * sr); i < sr; ++i) {
+            const double t = 2.3 + (double)i / sr;
+            maxErr = std::max(maxErr, std::fabs(out[2 * i] - sig((int)std::lround((t - hold) * sr))));
+        }
+        std::printf("    resumed content max deviation %.5f\n", maxErr);
+        CHECK(maxErr < 3e-4, "resumed song continues from where it was paused");
+    }
+
     std::printf("[dj] roll, tape stop, sound pads\n");
     {
         StemEngine e;

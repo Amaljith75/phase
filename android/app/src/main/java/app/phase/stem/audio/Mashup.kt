@@ -25,6 +25,8 @@ data class DeckState(
     /** Part of the song that plays: [trimIn, trimOut) seconds; trimOut 0 = to the end. */
     val trimIn: Float = 0f,
     val trimOut: Float = 0f,
+    /** Per-song play/pause; a paused song holds its place and re-enters on the beat. */
+    val playing: Boolean = true,
 ) {
     /** Level the engine should use for a stem. */
     fun level(bus: Int) = if (stemMuted[bus]) 0f else stemGains[bus]
@@ -48,21 +50,33 @@ data class MashupState(
         return listOf(r, r * 2f, r / 2f).filter { it in 0.5f..2f }.minByOrNull { abs(ln(it)) } ?: r.coerceIn(0.5f, 2f)
     }
 
-    /** Seconds on the timeline where the master beat grid starts. */
+    val beatPeriod: Float get() = 60f / (bpm ?: 120f)
+
+    /**
+     * Phase of the master beat grid on the timeline. It comes from the first
+     * song's *untrimmed* beats, so trimming or moving one song never moves
+     * the others.
+     */
     val gridOffset: Float get() {
         val d0 = decks.firstOrNull() ?: return 0f
-        val period = 60f / (bpm ?: 120f)
-        return (((d0.sourceBeatOffset - d0.trimIn) / ratio(d0)) % period + period) % period
+        val p = beatPeriod
+        return ((d0.sourceBeatOffset / ratio(d0)) % p + p) % p
     }
 
-    /** Where a deck starts so its beats land on the master grid. */
+    /** Where a song's play region starts on the timeline (beats on the master grid). */
     fun offsetSeconds(index: Int): Float {
         val d = decks[index]
-        val period = 60f / (bpm ?: 120f)
-        val align = if (index == 0 || d.sourceBpm == null) 0f else gridOffset - (d.sourceBeatOffset - d.trimIn) / ratio(d)
-        // Keep the aligned phase inside one beat so start-beat 0 means "together".
-        val base = if (index == 0) 0f else ((align % period) + period) % period
-        return base + d.startBeats * period + d.nudgeMs / 1000f
+        val p = beatPeriod
+        val align = if (d.sourceBpm == null) 0f else gridOffset - (d.sourceBeatOffset - d.trimIn) / ratio(d)
+        val base = ((align % p) + p) % p
+        return base + d.startBeats * p + d.nudgeMs / 1000f
+    }
+
+    /** Length of a song's play region on the timeline. */
+    fun regionSeconds(index: Int, songLength: Float): Float {
+        val d = decks[index]
+        val out = if (d.trimOut > d.trimIn) minOf(d.trimOut, songLength) else songLength
+        return (out - d.trimIn).coerceAtLeast(0f) / ratio(d)
     }
 
     fun toJson(): String {
@@ -81,7 +95,8 @@ data class MashupState(
                     .put("keyLock", d.keyLock).put("sync", d.sync)
                     .put("startBeats", d.startBeats).put("nudgeMs", d.nudgeMs.toDouble())
                     .put("stemMuted", JSONArray(d.stemMuted))
-                    .put("trimIn", d.trimIn.toDouble()).put("trimOut", d.trimOut.toDouble()),
+                    .put("trimIn", d.trimIn.toDouble()).put("trimOut", d.trimOut.toDouble())
+                    .put("playing", d.playing),
             )
         }
         o.put("decks", arr)
@@ -113,6 +128,7 @@ data class MashupState(
                         ?: listOf(false, false, false, false),
                     trimIn = d.optDouble("trimIn", 0.0).toFloat(),
                     trimOut = d.optDouble("trimOut", 0.0).toFloat(),
+                    playing = d.optBoolean("playing", true),
                 )
             }
             MashupState(id, o.optString("name", "Mashup"), decks, if (o.has("masterBpm")) o.getDouble("masterBpm").toFloat() else null)

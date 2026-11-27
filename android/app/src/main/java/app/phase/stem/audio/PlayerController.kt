@@ -229,11 +229,20 @@ class PlayerController(
         saveSoon()
     }
 
+    /** Play/pause one song of the mashup; resuming drops it in on the next beat. */
+    fun toggleDeck(index: Int) {
+        val m = _state.value.mashup ?: return
+        val d = m.decks.getOrNull(index) ?: return
+        updateMashup { s -> s.copy(decks = s.decks.mapIndexed { i, x -> if (i == index) x.copy(playing = !x.playing) else x }) }
+        if (!d.playing && !NativeEngine.nIsPlaying()) setPlaying(true)
+    }
+
     private fun applyDecks(m: MashupState) {
         m.decks.forEachIndexed { i, d ->
             Bus.stems.forEach { b -> NativeEngine.nSetDeckParam(i, DeckParam.gain(b), d.level(b.index)) }
             NativeEngine.nSetDeckParam(i, DeckParam.TRIM_IN, d.trimIn)
             NativeEngine.nSetDeckParam(i, DeckParam.TRIM_OUT, d.trimOut)
+            NativeEngine.nSetDeckParam(i, DeckParam.PLAYING, if (d.playing) 1f else 0f)
             NativeEngine.nSetDeckParam(i, DeckParam.VOLUME, d.volume)
             NativeEngine.nSetDeckParam(i, DeckParam.RATIO, m.ratio(d))
             NativeEngine.nSetDeckParam(i, DeckParam.OFFSET, m.offsetSeconds(i))

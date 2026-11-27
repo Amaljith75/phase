@@ -69,6 +69,8 @@ object NativeEngine {
     external fun nSetGlobal(id: Int, value: Float)
     external fun nTriggerSfx(pad: Int)
     external fun nStopSfx()
+    /** Seconds a paused deck has been held back on the timeline. */
+    external fun nDeckHold(deck: Int): Double
     /** DJ tape stop: brakes to a halt, then pauses. */
     external fun nBrake()
 

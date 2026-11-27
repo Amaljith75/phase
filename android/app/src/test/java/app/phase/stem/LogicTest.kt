@@ -139,8 +139,21 @@ class MashupTest {
         assertEquals(off + 2f, later.offsetSeconds(1), 1e-4f)
     }
 
+    @Test fun editingOneSongNeverMovesAnother() {
+        val m = app.phase.stem.audio.MashupState("m", "x", listOf(deck(120f, 0.25f), deck(120f, 0.40f).copy(startBeats = 16)))
+        val b0 = m.offsetSeconds(1)
+        assertEquals(0f, m.offsetSeconds(0), 1e-6f)
+        // Trim and move song A: song B must stay exactly where it was.
+        val edited = m.copy(decks = listOf(m.decks[0].copy(trimIn = 13.37f, trimOut = 90f, startBeats = 3), m.decks[1]))
+        assertEquals(b0, edited.offsetSeconds(1), 1e-6f)
+        // Song A's beats still land on the grid after trimming.
+        val aFirstBeat = edited.offsetSeconds(0) + (0.25f - 13.37f)
+        val phase = ((aFirstBeat - edited.gridOffset) % 0.5f + 0.5f) % 0.5f
+        assertTrue("phase $phase", phase < 1e-3f || phase > 0.5f - 1e-3f)
+    }
+
     @Test fun jsonRoundTrip() {
-        val m = app.phase.stem.audio.MashupState("m", "My mash", listOf(deck(128f).copy(stemGains = listOf(0f, 1f, 1.2f, 0.5f), pitch = -2f, startBeats = 8, stemMuted = listOf(true, false, false, true), trimIn = 12.5f, trimOut = 60f)), 124f)
+        val m = app.phase.stem.audio.MashupState("m", "My mash", listOf(deck(128f).copy(stemGains = listOf(0f, 1f, 1.2f, 0.5f), pitch = -2f, startBeats = 8, stemMuted = listOf(true, false, false, true), trimIn = 12.5f, trimOut = 60f, playing = false)), 124f)
         assertEquals(m, app.phase.stem.audio.MashupState.fromJson("m", m.toJson()))
     }
 

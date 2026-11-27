@@ -124,6 +124,8 @@ public:
     // ---- decks & performance ----
     void setDeckParam(int deck, int id, float v);
     float deckParam(int deck, int id) const;
+    /** Extra timeline delay a deck has gathered while paused (seconds). */
+    double deckHold(int deck) const { return deck >= 0 && deck < kMaxDecks ? deckHoldPub_[deck].load() : 0.0; }
     void setGlobal(int id, float v) { if (id >= 0 && id < G_COUNT) globals_[id].store(v); }
     float global(int id) const { return globals_[id].load(); }
     void triggerSfx(int pad) { sfx_.trigger(pad); }
@@ -157,6 +159,10 @@ private:
     struct DeckDsp {
         dsp::Smoother gain[kNumStems];
         dsp::PitchShifter pitch[kNumStems];
+        dsp::Smoother fade;      // deck play/pause de-click
+        double hold = 0;         // seconds the deck has been held while paused
+        bool on = true;          // audible & advancing
+        bool pending = false;    // waiting for the next beat to start
     };
     void renderChunk(float* out, int n, Track* t);
     void prefetchLoop();
@@ -207,6 +213,9 @@ private:
     // Scratch (allocated in prepare()).
     std::vector<double> posNew_, posOld_;
     std::vector<float> wNew_, wOld_, tg_, beat_;
+    std::vector<double> step_;
+    float lastBeat_ = 0.f;
+    std::atomic<double> deckHoldPub_[kMaxDecks];
     std::vector<float> busL_[kNumStems], busR_[kNumStems];
     std::vector<float> srcL_, srcR_, mixL_, mixR_;
 

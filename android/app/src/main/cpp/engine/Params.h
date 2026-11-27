@@ -63,6 +63,7 @@ enum DeckParam : int {
     D_KEYLOCK,          // 1 = keep original key when the tempo ratio != 1
     D_TRIM_IN,          // seconds into the song where it starts playing
     D_TRIM_OUT,         // seconds into the song where it stops (<= 0: to the end)
+    D_PLAYING,          // 1 = deck plays; 0 = deck paused (holds its place, re-enters on the beat)
     D_COUNT
 };
 

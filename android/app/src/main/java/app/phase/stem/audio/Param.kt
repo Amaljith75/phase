@@ -100,6 +100,7 @@ object DeckParam {
     const val KEYLOCK = 8
     const val TRIM_IN = 9
     const val TRIM_OUT = 10
+    const val PLAYING = 11
     fun gain(bus: Bus) = GAIN_VOCALS + bus.index
 }
 

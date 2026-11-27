@@ -151,3 +151,4 @@ JNI(void, nSetGlobal)(JNIEnv*, jobject, jint id, jfloat v) { engine().setGlobal(
 JNI(void, nTriggerSfx)(JNIEnv*, jobject, jint pad) { engine().triggerSfx(pad); }
 JNI(void, nBrake)(JNIEnv*, jobject) { engine().brake(); }
 JNI(void, nStopSfx)(JNIEnv*, jobject) { engine().stopSfx(); }
+JNI(jdouble, nDeckHold)(JNIEnv*, jobject, jint deck) { return engine().deckHold(deck); }
