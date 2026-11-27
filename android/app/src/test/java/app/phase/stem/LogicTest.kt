@@ -140,7 +140,7 @@ class MashupTest {
     }
 
     @Test fun jsonRoundTrip() {
-        val m = app.phase.stem.audio.MashupState("m", "My mash", listOf(deck(128f).copy(stemGains = listOf(0f, 1f, 1.2f, 0.5f), pitch = -2f, startBeats = 8)), 124f)
+        val m = app.phase.stem.audio.MashupState("m", "My mash", listOf(deck(128f).copy(stemGains = listOf(0f, 1f, 1.2f, 0.5f), pitch = -2f, startBeats = 8, stemMuted = listOf(true, false, false, true), trimIn = 12.5f, trimOut = 60f)), 124f)
         assertEquals(m, app.phase.stem.audio.MashupState.fromJson("m", m.toJson()))
     }
 

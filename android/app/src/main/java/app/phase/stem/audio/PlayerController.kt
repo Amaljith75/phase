@@ -231,7 +231,9 @@ class PlayerController(
 
     private fun applyDecks(m: MashupState) {
         m.decks.forEachIndexed { i, d ->
-            Bus.stems.forEach { b -> NativeEngine.nSetDeckParam(i, DeckParam.gain(b), d.stemGains[b.index]) }
+            Bus.stems.forEach { b -> NativeEngine.nSetDeckParam(i, DeckParam.gain(b), d.level(b.index)) }
+            NativeEngine.nSetDeckParam(i, DeckParam.TRIM_IN, d.trimIn)
+            NativeEngine.nSetDeckParam(i, DeckParam.TRIM_OUT, d.trimOut)
             NativeEngine.nSetDeckParam(i, DeckParam.VOLUME, d.volume)
             NativeEngine.nSetDeckParam(i, DeckParam.RATIO, m.ratio(d))
             NativeEngine.nSetDeckParam(i, DeckParam.OFFSET, m.offsetSeconds(i))
@@ -259,6 +261,23 @@ class PlayerController(
     fun triggerPad(pad: SoundPad) {
         ensureOutput()
         NativeEngine.nTriggerSfx(pad.ordinal)
+    }
+
+    fun stopPads() = NativeEngine.nStopSfx()
+
+    /** Resets a performance-panel tab to neutral. */
+    fun resetPerformance(tab: Int) {
+        var m = _mix.value
+        val buses = if (_state.value.stemMode) Bus.entries else listOf(Bus.MASTER)
+        fun clear(vararg ps: Param) = buses.forEach { b -> ps.forEach { p -> m = m.with(b, p, p.default) } }
+        when (tab) {
+            0 -> { m = SoundMode.ORIGINAL.apply(m).with(Bus.MASTER, Param.PITCH, 0f) }
+            1 -> { setRoll(0f); clear(Param.DJ_FILTER, Param.PUMP, Param.GATE); m = m.with(Bus.MASTER, Param.ECHO_MIX, 0f) }
+            2 -> clear(Param.VOCODER, Param.CRUSH, Param.PHASER, Param.FLANGER, Param.PUMP, Param.DJ_FILTER)
+            else -> { stopPads(); return }
+        }
+        applyMix(m)
+        saveSoon()
     }
 
     fun setVocoderKey(root: Int, minor: Boolean) {

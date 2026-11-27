@@ -62,19 +62,27 @@ private val NEON = listOf(Color(0xFFFF4D9A), Color(0xFF3EE6E0), Color(0xFFFFB547
 fun PerformancePanel(modifier: Modifier = Modifier) {
     var tab by remember { mutableIntStateOf(0) }
     val haptics = rememberHaptics()
+    val player = LocalGraph.current.player
     Column(modifier) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             TABS.forEachIndexed { i, t ->
                 val sel = i == tab
                 Text(
                     t, style = PhaseType.labelSmall, textAlign = TextAlign.Center,
                     color = if (sel) PhaseColors.Void else PhaseColors.Steel,
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
-                        .background(if (sel) PhaseColors.Chrome else Color.Transparent)
+                        .background(if (sel) PhaseColors.accent else Color.Transparent)
                         .clickable { haptics.tick(); tab = i }
                         .padding(vertical = 6.dp),
                 )
             }
+            // Resets whatever the open tab controls (on PADS: stops all pads).
+            Text(
+                if (tab == 3) "STOP" else "RESET", style = PhaseType.labelSmall, textAlign = TextAlign.Center, color = PhaseColors.Danger,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).border(1.dp, PhaseColors.Danger.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .clickable { haptics.reject(); player.resetPerformance(tab) }
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+            )
         }
         Spacer(Modifier.height(8.dp))
         Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {

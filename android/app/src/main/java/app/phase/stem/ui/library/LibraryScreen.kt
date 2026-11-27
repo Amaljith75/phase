@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -134,7 +135,7 @@ fun LibraryScreen(
             items(shown, key = { it.id }) { t ->
                 TrackRow(t, Modifier.padding(horizontal = 14.dp), onClick = { if (t.isPlayable) onOpenTrack(t) }) {
                     IconButton(onClick = { graph.toggleFavorite(t.id, !t.favorite) }) {
-                        Icon(if (t.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, "Favorite", tint = if (t.favorite) PhaseColors.Accent else PhaseColors.Steel)
+                        Icon(if (t.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, "Favorite", tint = if (t.favorite) PhaseColors.Cream else PhaseColors.Steel)
                     }
                     TrackMenu(t, onDelete = { confirmDelete = t }, onMashup = { onMashup(null, t.id) })
                 }
@@ -148,8 +149,8 @@ fun LibraryScreen(
                 ) {
                     Icon(Icons.Rounded.GraphicEq, null, tint = androidx.compose.ui.graphics.Color(0xFFFF4D9A), modifier = Modifier.size(22.dp))
                     Text(x.name, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
-                    IconButton(onClick = { graph.scope.launch(Dispatchers.IO) { graph.db.mashups().delete(x.id) } }) {
-                        Icon(Icons.Rounded.Close, "Delete mashup", tint = PhaseColors.Steel)
+                    IconButton(onClick = { graph.deleteMashup(x.id) }) {
+                        Icon(Icons.Rounded.Delete, "Delete mashup", tint = PhaseColors.Steel)
                     }
                 }
             }
@@ -221,7 +222,7 @@ private fun ProjectRow(p: ProjectEntity, t: TrackEntity?, onOpen: () -> Unit, on
             Text(p.name, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("PROJECT · ${t?.title ?: "track deleted"}", style = PhaseType.labelSmall, color = PhaseColors.Steel, maxLines = 1)
         }
-        IconButton(onClick = onDelete) { Icon(Icons.Rounded.Close, "Delete project", tint = PhaseColors.Steel) }
+        IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Delete mix", tint = PhaseColors.Steel) }
     }
 }
 

@@ -3,6 +3,8 @@ package app.phase.stem.ui.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -21,14 +23,36 @@ object PhaseColors {
     val Chrome = Color(0xFFEDEDF2)
     val Danger = Color(0xFFFF4D5E)
     val Ok = Color(0xFF5BFF8F)
-    val Accent = Color(0xFFE8E4D8)
+    val Cream = Color(0xFFE8E4D8)
 
     /** Liquid-metal gradient for marks, rims and headings. */
     val metal = Brush.linearGradient(
         listOf(Color(0xFFF4F4F8), Color(0xFF9A9AA6), Color(0xFFE2E2EA), Color(0xFF6E6E7A), Color(0xFFD5D5DE)),
     )
     val metalSoft = Brush.verticalGradient(listOf(Color(0xFF2A2A31), Color(0xFF141418)))
-    val background = Brush.verticalGradient(listOf(Color(0xFF111115), Void, Void))
+
+    /** App background, from the user's interface colour setting. */
+    val background: Brush get() = UiStyle.background.let { Brush.verticalGradient(listOf(it.top, it.bottom, it.bottom)) }
+
+    /** Highlight colour for active keys, tabs, progress, from the user's setting. */
+    val accent: Color get() = UiStyle.accent
+}
+
+/** User-selectable interface backgrounds. */
+enum class UiBackground(val label: String, val top: Color, val bottom: Color) {
+    CARBON("Carbon", Color(0xFF111115), Color(0xFF070708)),
+    BLACK("Pure black", Color(0xFF000000), Color(0xFF000000)),
+    MIDNIGHT("Midnight", Color(0xFF0E1426), Color(0xFF05070F)),
+    PLUM("Plum", Color(0xFF1C0F24), Color(0xFF09050D)),
+    FOREST("Forest", Color(0xFF0C1A14), Color(0xFF040A07)),
+    EMBER("Ember", Color(0xFF1F0F0A), Color(0xFF0A0504)),
+}
+
+/** Live interface style; Compose recomposes whatever reads it when it changes. */
+object UiStyle {
+    var accent by androidx.compose.runtime.mutableStateOf(Color(0xFFEDEDF2))
+    var background by androidx.compose.runtime.mutableStateOf(UiBackground.CARBON)
+    val ACCENTS = listOf(0xFFEDEDF2, 0xFFFFB547, 0xFFFF4D5E, 0xFF8B6CFF, 0xFF3EE6E0, 0xFF5BFF8F, 0xFFFF4D9A, 0xFF4D9BFF)
 }
 
 object PhaseType {

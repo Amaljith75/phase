@@ -98,6 +98,8 @@ object DeckParam {
     const val RATIO = 6
     const val PITCH = 7
     const val KEYLOCK = 8
+    const val TRIM_IN = 9
+    const val TRIM_OUT = 10
     fun gain(bus: Bus) = GAIN_VOCALS + bus.index
 }
 

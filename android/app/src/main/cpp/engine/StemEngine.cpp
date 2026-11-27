@@ -9,7 +9,7 @@ namespace phase {
 namespace {
 float deckDefault(int id) {
     switch (id) {
-        case D_OFFSET: case D_PITCH: return 0.f;
+        case D_OFFSET: case D_PITCH: case D_TRIM_IN: case D_TRIM_OUT: return 0.f;
         default: return 1.f;  // gains, volume, ratio, keylock
     }
 }
@@ -20,6 +20,7 @@ float clampDeck(int id, float v) {
         case D_OFFSET: return std::clamp(v, -3600.f, 3600.f);
         case D_RATIO: return std::clamp(v, 0.5f, 2.f);
         case D_PITCH: return std::clamp(v, -12.f, 12.f);
+        case D_TRIM_IN: case D_TRIM_OUT: return std::clamp(v, 0.f, 36000.f);
         default: return v > 0.5f ? 1.f : 0.f;
     }
 }
@@ -250,7 +251,11 @@ void StemEngine::recomputeDuration() {
         for (size_t i = 0; i < t->decks.size(); ++i) {
             const auto& d = t->decks[i];
             const double ratio = deck_[i][D_RATIO].load();
-            dur = std::max(dur, deck_[i][D_OFFSET].load() + (double)d.frames / (d.rate * ratio));
+            const double len = (double)d.frames / d.rate;
+            const double in = std::min<double>(deck_[i][D_TRIM_IN].load(), len);
+            const double outRaw = deck_[i][D_TRIM_OUT].load();
+            const double out = outRaw > in ? std::min(outRaw, len) : len;
+            dur = std::max(dur, deck_[i][D_OFFSET].load() + (out - in) / ratio);
         }
     }
     duration_.store(std::max(0.0, dur));
@@ -259,7 +264,7 @@ void StemEngine::recomputeDuration() {
 void StemEngine::setDeckParam(int deck, int id, float v) {
     if (deck < 0 || deck >= kMaxDecks || id < 0 || id >= D_COUNT) return;
     deck_[deck][id].store(clampDeck(id, v));
-    if (id == D_OFFSET || id == D_RATIO) recomputeDuration();
+    if (id == D_OFFSET || id == D_RATIO || id == D_TRIM_IN || id == D_TRIM_OUT) recomputeDuration();
 }
 
 float StemEngine::deckParam(int deck, int id) const {
@@ -502,6 +507,10 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
         const double off = deck_[d][D_OFFSET].load();
         const double ratio = deck_[d][D_RATIO].load();
         const double fps = deck.rate * ratio;  // deck frames per timeline second
+        // Trim: the song plays its [in, out) region, starting at `off` on the timeline.
+        const double inF = (double)deck_[d][D_TRIM_IN].load() * deck.rate;
+        const double outRaw = (double)deck_[d][D_TRIM_OUT].load() * deck.rate;
+        const double outF = outRaw > inF ? std::min<double>(outRaw, (double)deck.frames) : (double)deck.frames;
         const float vol = deck_[d][D_VOLUME].load();
         const float keyComp = deck_[d][D_KEYLOCK].load() > 0.5f ? (float)(-12.0 * std::log2(ratio)) : 0.f;
         const float semis = deck_[d][D_PITCH].load() + keyComp;
@@ -514,15 +523,21 @@ void StemEngine::renderChunk(float* out, int n, Track* t) {
             float* R = srcR_.data();
             for (int i = 0; i < n; ++i) {
                 if (wNew_[i] == 0.f && wOld_[i] == 0.f) { L[i] = R[i] = 0.f; continue; }
-                float l, r;
-                src.sample((posNew_[i] - off) * fps, l, r);
-                l *= wNew_[i];
-                r *= wNew_[i];
+                float l = 0, r = 0;
+                const double pn = (posNew_[i] - off) * fps + inF;
+                if (pn >= inF && pn < outF) {
+                    src.sample(pn, l, r);
+                    l *= wNew_[i];
+                    r *= wNew_[i];
+                }
                 if (wOld_[i] > 0.f) {
-                    float ol, orr;
-                    src.sample((posOld_[i] - off) * fps, ol, orr);
-                    l += ol * wOld_[i];
-                    r += orr * wOld_[i];
+                    const double po = (posOld_[i] - off) * fps + inF;
+                    if (po >= inF && po < outF) {
+                        float ol, orr;
+                        src.sample(po, ol, orr);
+                        l += ol * wOld_[i];
+                        r += orr * wOld_[i];
+                    }
                 }
                 L[i] = l * tg_[i];
                 R[i] = r * tg_[i];
@@ -605,7 +620,7 @@ void StemEngine::prefetchLoop() {
                 for (size_t d = 0; d < t->decks.size(); ++d) {
                     const auto& deck = t->decks[d];
                     const double fps = deck.rate * deck_[d][D_RATIO].load();
-                    const int64_t p = (int64_t)((pos - deck_[d][D_OFFSET].load()) * fps);
+                    const int64_t p = (int64_t)((pos - deck_[d][D_OFFSET].load()) * fps + deck_[d][D_TRIM_IN].load() * deck.rate);
                     const int64_t sec = (int64_t)fps;
                     const int64_t behind = sec * (rev ? 6 : 1);
                     const int64_t ahead = sec * (rev ? 1 : 6);

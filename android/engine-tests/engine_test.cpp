@@ -297,6 +297,26 @@ int main() {
         std::printf("    2x tempo deck max deviation %.5f\n", maxErr);
         CHECK(maxErr < 0.03, "tempo ratio resamples the deck on the shared clock");
         CHECK(std::fabs(e.duration() - 20.0) < 1e-6, "duration follows deck ratio");
+
+        // Trim: deck 1 plays song seconds [5, 7) starting at timeline 0.
+        e.setDeckParam(1, D_RATIO, 1.f);
+        e.setDeckParam(1, D_TRIM_IN, 5.f);
+        e.setDeckParam(1, D_TRIM_OUT, 7.f);
+        CHECK(std::fabs(e.duration() - 20.0) < 1e-6, "deck 0 still defines the length");
+        e.seek(0.0);
+        renderSeconds(e, 0.5);
+        out = renderSeconds(e, 2.0);
+        maxErr = 0;
+        double tail = 0;
+        for (int i = sr / 10; i < 2 * sr; ++i) {
+            const double t = 0.5 + (double)i / sr;
+            const double want = t < 2.0 ? sig((int)std::lround((5.0 + t) * sr)) : 0.0;
+            if (std::fabs(t - 2.0) < 0.02) continue;  // edge sample
+            maxErr = std::max(maxErr, std::fabs(out[2 * i] - want));
+            if (t > 2.05) tail = std::max(tail, (double)std::fabs(out[2 * i]));
+        }
+        std::printf("    trimmed deck max deviation %.5f, after out-point %.5f\n", maxErr, tail);
+        CHECK(maxErr < 3e-4 && tail < 1e-6, "trim in/out plays exactly the chosen region");
     }
 
     std::printf("[dj] roll, tape stop, sound pads\n");
@@ -326,6 +346,13 @@ int main() {
         float pk = 0;
         for (float v : pad) pk = std::max(pk, std::fabs(v));
         CHECK(pk > 0.2f && pk <= 1.f, "sound pad plays even while paused");
+        e.triggerSfx(0);
+        e.render(pad.data(), 4800);
+        e.stopSfx();
+        e.render(pad.data(), 4800);
+        pk = 0;
+        for (int i = 2 * 2400; i < 2 * 4800; ++i) pk = std::max(pk, std::fabs(pad[i]));
+        CHECK(pk < 1e-6f, "stop silences all pads");
     }
 
     std::printf("[edm] new effects at extreme settings stay stable\n");

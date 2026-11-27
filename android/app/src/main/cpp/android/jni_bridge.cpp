@@ -150,3 +150,4 @@ JNI(void, nSetDeckParam)(JNIEnv*, jobject, jint deck, jint id, jfloat v) { engin
 JNI(void, nSetGlobal)(JNIEnv*, jobject, jint id, jfloat v) { engine().setGlobal(id, v); }
 JNI(void, nTriggerSfx)(JNIEnv*, jobject, jint pad) { engine().triggerSfx(pad); }
 JNI(void, nBrake)(JNIEnv*, jobject) { engine().brake(); }
+JNI(void, nStopSfx)(JNIEnv*, jobject) { engine().stopSfx(); }

@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -55,6 +56,8 @@ import app.phase.stem.ui.components.appSettings
 import app.phase.stem.ui.components.formatBytes
 import app.phase.stem.ui.theme.PhaseColors
 import app.phase.stem.ui.theme.PhaseType
+import app.phase.stem.ui.theme.UiBackground
+import app.phase.stem.ui.theme.UiStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -96,50 +99,19 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         // -------------------------------------------------- processing
         item {
             Section("AI separation") {
-                Choice(
-                    "Engine", s.separationEngine,
-                    listOf("device" to "On this phone (offline)", "server" to "My own server (advanced)"),
-                ) { v -> store.update { it.copy(separationEngine = v) }; status = null }
-                if (s.onDevice) {
+                val local by produceState<ProviderStatus?>(null) { value = graph.separationProvider().status() }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                    val ready = local?.reachable == true
+                    Led(ready, if (ready) PhaseColors.Ok else PhaseColors.Danger, size = 10.dp)
+                    Spacer(Modifier.width(10.dp))
                     Text(
-                        "Hybrid Transformer Demucs runs on your phone. Nothing is uploaded and no internet is needed. " +
-                            "A 4-minute song takes a few minutes on a recent phone; it keeps going in the background.",
-                        style = PhaseType.labelSmall, color = PhaseColors.Steel,
+                        when {
+                            local == null -> "Checking…"
+                            ready -> "Engine ready"
+                            else -> "Engine unavailable"
+                        },
+                        style = PhaseType.body, color = PhaseColors.Chrome,
                     )
-                    val local by produceState<ProviderStatus?>(null) { value = graph.separationProvider().status() }
-                    local?.let { st ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                            Led(st.reachable, if (st.reachable) PhaseColors.Ok else PhaseColors.Danger)
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (st.reachable) "${st.message} · ${st.device}" else st.message, style = PhaseType.labelSmall,
-                                color = if (st.reachable) PhaseColors.Ok else PhaseColors.Danger)
-                        }
-                    }
-                } else {
-                    Text(
-                        "Offload separation to a computer running the Phase server (backend/ in the source repo) — faster with an NVIDIA GPU.",
-                        style = PhaseType.labelSmall, color = PhaseColors.Steel,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Field("Server URL", serverUrl, { serverUrl = it }, "http://192.168.1.20:8000")
-                    Spacer(Modifier.height(8.dp))
-                    Field("Access token (optional)", token, { token = it }, "", secret = true)
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        HardwareKey(if (testing) "TESTING…" else "SAVE & TEST", active = true, enabled = !testing) { test() }
-                        Spacer(Modifier.width(12.dp))
-                        status?.let { st ->
-                            Led(st.reachable, if (st.reachable) PhaseColors.Ok else PhaseColors.Danger)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                if (st.reachable) "Connected · ${st.device?.uppercase() ?: "?"}" else st.message,
-                                style = PhaseType.labelSmall, color = if (st.reachable) PhaseColors.Ok else PhaseColors.Danger, maxLines = 2,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    val models = status?.models?.takeIf { it.isNotEmpty() }?.map { it.id to it.name } ?: DEFAULT_MODELS
-                    Choice("Server model", s.separationModel, models) { v -> store.update { it.copy(separationModel = v) } }
                 }
                 Toggle("Separate automatically after import", s.autoSeparate) { v -> store.update { it.copy(autoSeparate = v) } }
             }
@@ -147,23 +119,10 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         // -------------------------------------------------- audio
         item {
             Section("Audio") {
-                Toggle("Low-latency output", s.lowLatency, "Exclusive AAudio stream with the smallest stable buffer. Turn off to save battery.") { v ->
+                Toggle("Low-latency output", s.lowLatency) { v ->
                     store.update { it.copy(lowLatency = v) }
                     graph.player.restartOutput()
                 }
-                val info by produceState<NativeEngine.StreamInfo?>(null, s.lowLatency) {
-                    while (true) {
-                        value = NativeEngine.streamInfo()
-                        delay(1000)
-                    }
-                }
-                info?.takeIf { it.sampleRate > 0 }?.let { i ->
-                    Text(
-                        "${i.sampleRate} Hz · burst ${i.framesPerBurst} · buffer ${i.bufferSize}/${i.bufferCapacity} · ${if (i.aaudio) "AAudio" else "OpenSL ES"} · " +
-                            "${if (i.exclusive) "exclusive" else "shared"}${if (i.latencyMs >= 0) " · ~%.0f ms".format(i.latencyMs) else ""} · xruns ${i.xruns}",
-                        style = PhaseType.labelSmall, color = PhaseColors.Steel, modifier = Modifier.padding(vertical = 6.dp),
-                    )
-                } ?: Text("Output idle — open a track to start the audio stream.", style = PhaseType.labelSmall, color = PhaseColors.Steel)
                 Choice("Export format", s.exportFormat, listOf("wav" to "WAV 16-bit (lossless)", "mp3" to "MP3")) { v -> store.update { it.copy(exportFormat = v) } }
                 Choice("MP3 bitrate", s.mp3Bitrate.toString(), listOf("128", "192", "256", "320").map { it to "$it kbps" }) { v -> store.update { it.copy(mp3Bitrate = v.toInt()) } }
                 Choice("Live recording format", s.recordFormat, listOf("wav" to "WAV", "mp3" to "MP3")) { v -> store.update { it.copy(recordFormat = v) } }
@@ -204,6 +163,39 @@ fun SettingsScreen(contentPadding: PaddingValues) {
                 Toggle("Keep screen on in player", s.keepScreenOn) { v -> store.update { it.copy(keepScreenOn = v) } }
             }
         }
+        // -------------------------------------------------- interface
+        item {
+            Section("Interface colour") {
+                Text("ACCENT", style = PhaseType.label, color = PhaseColors.Steel, modifier = Modifier.padding(vertical = 4.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    UiStyle.ACCENTS.forEach { c ->
+                        val sel = s.uiAccent == c
+                        Box(
+                            Modifier.size(30.dp).clip(CircleShape).background(Color(c))
+                                .border(if (sel) 3.dp else 1.dp, if (sel) PhaseColors.Chrome else Color(0x33000000), CircleShape)
+                                .clickable { store.update { it.copy(uiAccent = c) } },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("BACKGROUND", style = PhaseType.label, color = PhaseColors.Steel, modifier = Modifier.padding(vertical = 4.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    UiBackground.entries.forEach { bg ->
+                        val sel = s.uiBackground == bg.name
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { store.update { it.copy(uiBackground = bg.name) } }) {
+                            Box(
+                                Modifier.size(width = 44.dp, height = 56.dp).clip(RoundedCornerShape(10.dp))
+                                    .background(Brush.verticalGradient(listOf(bg.top, bg.bottom)))
+                                    .border(if (sel) 2.dp else 1.dp, if (sel) PhaseColors.accent else PhaseColors.Edge, RoundedCornerShape(10.dp)),
+                            )
+                            Text(bg.label, style = PhaseType.labelSmall, color = if (sel) PhaseColors.Chrome else PhaseColors.Steel, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                HardwareKey("RESET") { store.update { it.copy(uiAccent = AppSettings().uiAccent, uiBackground = AppSettings().uiBackground) } }
+            }
+        }
         // -------------------------------------------------- lyrics
         item {
             Section("Lyrics") {
@@ -234,10 +226,6 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         item {
             Section("About") {
                 Text("Phase ${BuildConfig.VERSION_NAME}", style = PhaseType.body, color = PhaseColors.Chrome)
-                Text(
-                    "Native C++ engine on Oboe/AAudio · on-device AI: HT-Demucs (Meta AI, MIT) on ONNX Runtime (MIT) · MP3 encoding by shine (LGPL-2) · lyrics by LRCLIB.",
-                    style = PhaseType.labelSmall, color = PhaseColors.Steel,
-                )
             }
         }
     }

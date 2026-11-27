@@ -293,7 +293,7 @@ private fun SeparationBanner(status: TrackStatus, progress: Float, message: Stri
                         status == TrackStatus.FAILED -> message ?: "Tap retry"
                         status == TrackStatus.SEPARATING || status == TrackStatus.QUEUED -> message ?: "Working…"
                         noServer -> "Configure a separation server in Settings"
-                        else -> "On-device AI splits vocals · drums · bass · other — no internet needed"
+                        else -> "Split into vocals · drums · bass · other"
                     },
                     style = PhaseType.labelSmall, color = if (status == TrackStatus.FAILED) PhaseColors.Danger else PhaseColors.Steel, maxLines = 2,
                 )
@@ -319,7 +319,7 @@ private fun CenterDisc(playing: Boolean, progress: Float, recording: Boolean, le
             drawCircle(PhaseColors.Void, r * 0.96f)
             drawCircle(PhaseColors.metal, r * 0.96f, style = Stroke(r * 0.07f))
             drawArc(
-                if (recording) PhaseColors.Danger else PhaseColors.Chrome, -90f, 360f * progress, false,
+                if (recording) PhaseColors.Danger else PhaseColors.accent, -90f, 360f * progress, false,
                 topLeft = Offset(r * 0.14f, r * 0.14f), size = Size(r * 1.72f, r * 1.72f), style = Stroke(r * 0.05f, cap = StrokeCap.Round),
             )
             drawCircle(Brush.linearGradient(listOf(Color(0xFF2C2C34), Color(0xFF0C0C10))), r * 0.72f)

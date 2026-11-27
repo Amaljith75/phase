@@ -69,6 +69,13 @@ class AppGraph(val app: Application) {
         }
     }
 
+    fun deleteMashup(id: String) = scope.launch {
+        if (player.state.value.mashup?.id == id) player.close()
+        withContext(Dispatchers.IO) { db.mashups().delete(id) }
+    }
+
+    fun deleteProject(id: String) = scope.launch(Dispatchers.IO) { db.projects().delete(id) }
+
     /** Frees stem cache for a track; it can be re-separated later. */
     fun clearStems(trackId: String) = scope.launch { clearStemsNow(trackId) }
 

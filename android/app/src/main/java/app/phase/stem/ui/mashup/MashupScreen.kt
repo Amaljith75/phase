@@ -1,6 +1,24 @@
 package app.phase.stem.ui.mashup
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
+import app.phase.stem.audio.AudioDecoder
+import app.phase.stem.audio.NativeEngine
+import app.phase.stem.data.GestureAction
+import app.phase.stem.ui.components.PadCorner
+import app.phase.stem.ui.components.StemPad
+import kotlin.math.roundToInt
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -78,7 +96,7 @@ fun deckFrom(t: TrackEntity) = DeckState(t.id, t.title, t.bpm, t.beatOffset)
  * [mashupId]: an existing mashup, or null to start one from [seedTrackId].
  */
 @Composable
-fun MashupScreen(mashupId: String?, seedTrackId: String?, onBack: () -> Unit, onOpenPlayer: () -> Unit) {
+fun MashupScreen(mashupId: String?, seedTrackId: String?, onBack: () -> Unit, onOpenPlayer: () -> Unit, onEffects: (Bus) -> Unit) {
     val graph = LocalGraph.current
     val player = graph.player
     val state by player.state.collectAsState()
@@ -117,36 +135,53 @@ fun MashupScreen(mashupId: String?, seedTrackId: String?, onBack: () -> Unit, on
     }
 
     val m = state.mashup
+    var confirmDelete by remember { mutableStateOf(false) }
+    // Live stem activity for the pads' glow.
+    val levels = remember { List(5) { mutableFloatStateOf(0f) } }
+    LaunchedEffect(Unit) {
+        val buf = FloatArray(10)
+        while (true) {
+            withFrameNanos { }
+            NativeEngine.nMeters(buf)
+            for (i in 0 until 5) levels[i].floatValue = buf[i * 2]
+        }
+    }
     Column(Modifier.fillMaxSize().background(PhaseColors.background).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = PhaseColors.Mist) }
             MetalTitle("MASHUP", PhaseType.title.copy(letterSpacing = PhaseType.label.letterSpacing), Modifier.weight(1f))
             if (m != null) {
-                IconButton(onClick = { haptics.confirm(); player.togglePlay() }) {
-                    Icon(if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play", tint = PhaseColors.Chrome)
-                }
+                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Delete mashup", tint = PhaseColors.Steel) }
+                Box(
+                    Modifier.size(44.dp).clip(CircleShape).background(PhaseColors.accent).clickable { haptics.confirm(); player.togglePlay() },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play", tint = PhaseColors.Void) }
+                Spacer(Modifier.width(8.dp))
             }
         }
         if (m == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-                    Text(if (state.loading) "LOADING…" else "Pick separated songs to layer", style = PhaseType.label, color = PhaseColors.Steel)
+                    Text(if (state.loading) "LOADING…" else "Pick two songs to mix", style = PhaseType.label, color = PhaseColors.Steel)
                     Spacer(Modifier.height(16.dp))
                     HardwareKey("ADD SONG", icon = Icons.Rounded.Add, active = true) { adding = true }
                 }
             }
         } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { MasterCard(m, state.position, state.duration) }
-                itemsIndexed(m.decks, key = { i, d -> "$i-${d.trackId}" }) { i, d -> DeckCard(m, i, d) }
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                item { MasterStrip(m, state.position, state.duration) }
+                itemsIndexed(m.decks, key = { i, d -> "$i-${d.trackId}" }) { i, d ->
+                    DeckSection(m, i, d, state.position, levels, onEffects)
+                }
                 if (m.decks.size < MashupState.MAX_DECKS) item {
-                    HardwareKey("ADD SONG (${m.decks.size}/${MashupState.MAX_DECKS})", Modifier.fillMaxWidth().padding(horizontal = 16.dp), icon = Icons.Rounded.Add) { adding = true }
+                    HardwareKey(
+                        if (m.decks.size < 2) "ADD SECOND SONG" else "ADD ANOTHER SONG",
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp), icon = Icons.Rounded.Add, active = m.decks.size < 2,
+                    ) { adding = true }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
             }
-            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                HardwareKey("PERFORM · FX · RECORD", Modifier.weight(1f), icon = Icons.Rounded.GraphicEq, active = true) { onOpenPlayer() }
-            }
+            HardwareKey("PERFORM · FX · RECORD", Modifier.fillMaxWidth().padding(12.dp), icon = Icons.Rounded.GraphicEq, active = true) { onOpenPlayer() }
         }
     }
 
@@ -157,98 +192,224 @@ fun MashupScreen(mashupId: String?, seedTrackId: String?, onBack: () -> Unit, on
         else cur.copy(decks = cur.decks + deckFrom(t))
         player.openMashup(next, player.mix.value.toJson())
     }
+    if (confirmDelete && m != null) AlertDialog(
+        onDismissRequest = { confirmDelete = false },
+        title = { Text("Delete “${m.name}”?") },
+        text = { Text("The songs stay in your library.") },
+        confirmButton = {
+            TextButton(onClick = {
+                confirmDelete = false
+                graph.deleteMashup(m.id)
+                onBack()
+            }) { Text("Delete", color = PhaseColors.Danger) }
+        },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+    )
 }
 
+private val DECK_COLORS = listOf(Color(0xFF3EE6E0), Color(0xFFFF4D9A), Color(0xFFFFB547), Color(0xFF8B6CFF))
+
 @Composable
-private fun MasterCard(m: MashupState, position: Double, duration: Double) {
+private fun MasterStrip(m: MashupState, position: Double, duration: Double) {
     val player = LocalGraph.current.player
-    GlassPanel(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        OutlinedTextField(
-            m.name, { v -> player.updateMashup { it.copy(name = v.take(40)) } }, singleLine = true, label = { Text("Mashup name") },
-            colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = PhaseColors.Edge, focusedBorderColor = PhaseColors.Mist),
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        BasicTextField(
+            m.name, { v -> player.updateMashup { it.copy(name = v.take(40)) } }, singleLine = true,
+            textStyle = PhaseType.title.copy(color = PhaseColors.Chrome), cursorBrush = androidx.compose.ui.graphics.SolidColor(PhaseColors.accent),
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("TEMPO", style = PhaseType.label, color = PhaseColors.Steel, modifier = Modifier.width(56.dp))
             val bpm = m.bpm
             HardwareKey("−", compact = true, enabled = bpm != null) { player.updateMashup { it.copy(masterBpm = (bpm!! - 1f).coerceAtLeast(60f)) } }
-            Text(bpm?.let { "%.1f".format(it) } ?: "—", style = PhaseType.readout, color = PhaseColors.Chrome, textAlign = TextAlign.Center, modifier = Modifier.width(56.dp))
+            Text(bpm?.let { "%.0f BPM".format(it) } ?: "— BPM", style = PhaseType.readout, color = PhaseColors.Chrome, textAlign = TextAlign.Center, modifier = Modifier.width(76.dp))
             HardwareKey("+", compact = true, enabled = bpm != null) { player.updateMashup { it.copy(masterBpm = (bpm!! + 1f).coerceAtMost(200f)) } }
             Spacer(Modifier.weight(1f))
-            HardwareKey("FOLLOW SONG 1", active = m.masterBpm == null, compact = true) { player.updateMashup { it.copy(masterBpm = null) } }
+            Text("${formatTime(position)} / ${formatTime(duration)}", style = PhaseType.readout, color = PhaseColors.Mist)
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "${formatTime(position)} / ${formatTime(duration)} · songs are tempo-synced and beat-aligned automatically",
-            style = PhaseType.labelSmall, color = PhaseColors.Steel,
-        )
     }
 }
 
 @Composable
-private fun DeckCard(m: MashupState, index: Int, d: DeckState) {
-    val player = LocalGraph.current.player
+private fun DeckSection(
+    m: MashupState,
+    index: Int,
+    d: DeckState,
+    position: Double,
+    levels: List<androidx.compose.runtime.MutableFloatState>,
+    onEffects: (Bus) -> Unit,
+) {
     val graph = LocalGraph.current
+    val player = graph.player
     val track by graph.db.tracks().observe(d.trackId).collectAsState(initial = null)
+    val color = DECK_COLORS[index % DECK_COLORS.size]
     fun edit(f: (DeckState) -> DeckState) = player.updateMashup { s -> s.copy(decks = s.decks.mapIndexed { i, x -> if (i == index) f(x) else x }) }
     val ratio = m.ratio(d)
-    GlassPanel(Modifier.fillMaxWidth().padding(horizontal = 16.dp), padding = 12.dp) {
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        // Song header
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TrackArt(track, Modifier.size(40.dp), corner = 10.dp)
-            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                Text("${index + 1}  ${d.title}", style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(color), contentAlignment = Alignment.Center) {
+                Text(('A' + index).toString(), style = PhaseType.label, color = PhaseColors.Void)
+            }
+            Spacer(Modifier.width(8.dp))
+            TrackArt(track, Modifier.size(34.dp), corner = 8.dp)
+            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                Text(d.title, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    d.sourceBpm?.let { b -> "%.0f → %.0f BPM · %.2fx".format(b, b * ratio, ratio) } ?: "tempo unknown · not synced",
-                    style = PhaseType.labelSmall, color = if (ratio != 1f) Color(0xFFFFB547) else PhaseColors.Steel,
+                    listOfNotNull(
+                        d.sourceBpm?.let { "%.0f BPM".format(it) },
+                        if (d.pitch != 0f) "KEY %+.0f".format(d.pitch) else null,
+                    ).joinToString(" · ").ifBlank { "—" },
+                    style = PhaseType.labelSmall, color = PhaseColors.Steel,
                 )
             }
+            HardwareKey("−", compact = true) { edit { it.copy(pitch = (it.pitch - 1f).coerceAtLeast(-12f)) } }
+            Text("KEY", style = PhaseType.labelSmall, color = PhaseColors.Steel, modifier = Modifier.padding(horizontal = 4.dp))
+            HardwareKey("+", compact = true) { edit { it.copy(pitch = (it.pitch + 1f).coerceAtMost(12f)) } }
             if (m.decks.size > 1) IconButton(onClick = {
-                val next = m.copy(decks = m.decks.filterIndexed { i, _ -> i != index })
-                player.openMashup(next, player.mix.value.toJson())
+                player.openMashup(m.copy(decks = m.decks.filterIndexed { i, _ -> i != index }), player.mix.value.toJson())
             }) { Icon(Icons.Rounded.Close, "Remove song", tint = PhaseColors.Steel) }
         }
-        Spacer(Modifier.height(6.dp))
-        Bus.stems.forEach { b ->
-            StemFader(b.short, d.stemGains[b.index], stemColor(b)) { v -> edit { it.copy(stemGains = it.stemGains.toMutableList().also { g -> g[b.index] = v }) } }
+        Spacer(Modifier.height(8.dp))
+        // Four stem pads for this song
+        val corners = listOf(PadCorner.TopStart, PadCorner.TopEnd, PadCorner.BottomStart, PadCorner.BottomEnd)
+        val soloIdx = d.stemMuted.indices.singleOrNull { !d.stemMuted[it] }?.takeIf { d.stemMuted.count { m -> m } == 3 }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(listOf(Bus.VOCALS, Bus.DRUMS), listOf(Bus.BASS, Bus.OTHER)).forEach { row ->
+                Row(Modifier.fillMaxWidth().height(104.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { b ->
+                        val i = b.index
+                        StemPad(
+                            bus = b, color = stemColor(b), corner = corners[i],
+                            gain = d.stemGains[i], muted = d.stemMuted[i], soloed = soloIdx == i,
+                            audible = !d.stemMuted[i] && d.stemGains[i] > 0f, enabled = true, effects = emptyList(),
+                            level = levels[i],
+                            onGain = { g -> edit { it.copy(stemGains = it.stemGains.toMutableList().also { l -> l[i] = g }) } },
+                            onAction = { a ->
+                                when (a) {
+                                    GestureAction.TOGGLE_MUTE -> edit { it.copy(stemMuted = it.stemMuted.toMutableList().also { l -> l[i] = !l[i] }) }
+                                    GestureAction.TOGGLE_SOLO -> edit {
+                                        if (soloIdx == i) it.copy(stemMuted = listOf(false, false, false, false))
+                                        else it.copy(stemMuted = List(4) { k -> k != i })
+                                    }
+                                    GestureAction.OPEN_EFFECTS -> onEffects(b)
+                                    GestureAction.RESET_STEM -> edit {
+                                        it.copy(
+                                            stemGains = it.stemGains.toMutableList().also { l -> l[i] = 1f },
+                                            stemMuted = it.stemMuted.toMutableList().also { l -> l[i] = false },
+                                        )
+                                    }
+                                    GestureAction.NONE -> Unit
+                                }
+                            },
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                        )
+                    }
+                }
+            }
         }
-        StemFader("VOL", d.volume, PhaseColors.Chrome) { v -> edit { it.copy(volume = v) } }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(top = 4.dp)) {
-            Text("KEY", style = PhaseType.labelSmall, color = PhaseColors.Steel)
-            HardwareKey("−", compact = true) { edit { it.copy(pitch = (it.pitch - 1f).coerceAtLeast(-12f)) } }
-            Text((if (d.pitch > 0) "+" else "") + "%.0f".format(d.pitch), style = PhaseType.readout, color = PhaseColors.Chrome, textAlign = TextAlign.Center, modifier = Modifier.width(28.dp))
-            HardwareKey("+", compact = true) { edit { it.copy(pitch = (it.pitch + 1f).coerceAtMost(12f)) } }
-            Spacer(Modifier.weight(1f))
-            HardwareKey("SYNC", active = d.sync, compact = true) { edit { it.copy(sync = !it.sync) } }
-            HardwareKey("KEY LOCK", active = d.keyLock, compact = true) { edit { it.copy(keyLock = !it.keyLock) } }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(top = 6.dp)) {
-            Text("START", style = PhaseType.labelSmall, color = PhaseColors.Steel)
-            HardwareKey("−BAR", compact = true) { edit { it.copy(startBeats = it.startBeats - 4) } }
-            HardwareKey("−1", compact = true) { edit { it.copy(startBeats = it.startBeats - 1) } }
-            Text("%+d".format(d.startBeats), style = PhaseType.readout, color = PhaseColors.Chrome, textAlign = TextAlign.Center, modifier = Modifier.width(34.dp))
-            HardwareKey("+1", compact = true) { edit { it.copy(startBeats = it.startBeats + 1) } }
-            HardwareKey("+BAR", compact = true) { edit { it.copy(startBeats = it.startBeats + 4) } }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(top = 6.dp)) {
-            Text("NUDGE", style = PhaseType.labelSmall, color = PhaseColors.Steel)
-            HardwareKey("−10ms", compact = true) { edit { it.copy(nudgeMs = it.nudgeMs - 10f) } }
-            Text("%+.0f ms".format(d.nudgeMs), style = PhaseType.readout, color = PhaseColors.Chrome, textAlign = TextAlign.Center, modifier = Modifier.width(64.dp))
-            HardwareKey("+10ms", compact = true) { edit { it.copy(nudgeMs = it.nudgeMs + 10f) } }
-        }
+        Spacer(Modifier.height(8.dp))
+        SongBar(m, index, d, track, ratio, position, color) { f -> edit(f) }
     }
 }
 
+/**
+ * The song's own waveform. Drag the two handles to choose which part of the
+ * song plays; tap to jump the mashup there; move its start by bars.
+ */
 @Composable
-private fun StemFader(label: String, value: Float, color: Color, onChange: (Float) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = PhaseType.labelSmall, color = color, modifier = Modifier.width(34.dp))
-        Slider(
-            value = value, onValueChange = { onChange(if (kotlin.math.abs(it - 1f) < 0.03f) 1f else it) }, valueRange = 0f..1.5f,
-            modifier = Modifier.weight(1f).height(26.dp),
-            colors = SliderDefaults.colors(thumbColor = PhaseColors.Chrome, activeTrackColor = color, inactiveTrackColor = PhaseColors.Edge),
-        )
-        Text("%.0f".format(value * 100), style = PhaseType.labelSmall, color = PhaseColors.Mist, textAlign = TextAlign.End, modifier = Modifier.width(30.dp))
+private fun SongBar(
+    m: MashupState,
+    index: Int,
+    d: DeckState,
+    track: TrackEntity?,
+    ratio: Float,
+    position: Double,
+    color: Color,
+    edit: ((DeckState) -> DeckState) -> Unit,
+) {
+    val graph = LocalGraph.current
+    val player = graph.player
+    val haptics = rememberHaptics()
+    val len = ((track?.durationMs ?: 0L) / 1000f).coerceAtLeast(1f)
+    val peaks by produceState(FloatArray(0), d.trackId) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            AudioDecoder.loadPeaks(graph.storage.mixPeaks(d.trackId), 160)
+        }
+    }
+    val inS = d.trimIn.coerceIn(0f, len)
+    val outS = if (d.trimOut > inS) d.trimOut.coerceAtMost(len) else len
+    val off = m.offsetSeconds(index)
+    val songPos = inS + ((position - off) * ratio).toFloat()
+    val playing = songPos in inS..outS && position >= off
+    val cur by rememberUpdatedState(Triple(inS, outS, len))
+
+    Canvas(
+        Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF111116))
+            .pointerInput(d.trackId) {
+                detectTapGestures { o ->
+                    val (a, b, l) = cur
+                    val t = (o.x / size.width * l).coerceIn(a, b)
+                    haptics.tick()
+                    player.seek((off + (t - a) / ratio).toDouble().coerceAtLeast(0.0))
+                }
+            }
+            .pointerInput(d.trackId) {
+                var dragIn = true
+                detectHorizontalDragGestures(
+                    onDragStart = { o ->
+                        val (a, b, l) = cur
+                        val x = o.x / size.width * l
+                        dragIn = kotlin.math.abs(x - a) <= kotlin.math.abs(x - b)
+                        haptics.tick()
+                    },
+                ) { change, _ ->
+                    change.consume()
+                    val (a, b, l) = cur
+                    val t = (change.position.x / size.width * l).coerceIn(0f, l)
+                    val snapped = (t * 10).roundToInt() / 10f
+                    if (dragIn) edit { it.copy(trimIn = snapped.coerceAtMost(b - 2f).coerceAtLeast(0f)) }
+                    else edit { it.copy(trimOut = if (snapped >= l - 0.15f) 0f else snapped.coerceAtLeast(a + 2f)) }
+                }
+            },
+    ) {
+        val w = size.width
+        val h = size.height
+        val x0 = inS / len * w
+        val x1 = outS / len * w
+        drawRect(color.copy(alpha = 0.12f), Offset(x0, 0f), Size(x1 - x0, h))
+        if (peaks.isNotEmpty()) {
+            val bw = w / peaks.size
+            peaks.forEachIndexed { i, v ->
+                val x = i * bw
+                val inside = x in x0..x1
+                val bh = h * 0.8f * v.coerceAtLeast(0.03f)
+                drawRect(if (inside) color.copy(alpha = 0.85f) else PhaseColors.Edge, Offset(x, (h - bh) / 2), Size(bw * 0.6f, bh))
+            }
+        }
+        // Trim handles
+        listOf(x0, x1).forEach { x ->
+            drawRect(PhaseColors.Chrome, Offset(x - 2f, 0f), Size(4f, h))
+            drawCircle(PhaseColors.Chrome, 7f, Offset(x, h / 2))
+        }
+        if (playing) {
+            val px = songPos / len * w
+            drawLine(Color.White, Offset(px, 0f), Offset(px, h), 3f)
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+        Text("${formatTime(inS.toDouble())} → ${formatTime(outS.toDouble())}", style = PhaseType.labelSmall, color = PhaseColors.Mist, modifier = Modifier.weight(1f))
+        if (index > 0) {
+            Text("START", style = PhaseType.labelSmall, color = PhaseColors.Steel)
+            Spacer(Modifier.width(6.dp))
+            HardwareKey("◀ BAR", compact = true) { edit { it.copy(startBeats = it.startBeats - 4) } }
+            Text(
+                "%+d".format(d.startBeats / 4), style = PhaseType.readout, color = PhaseColors.Chrome,
+                textAlign = TextAlign.Center, modifier = Modifier.width(30.dp),
+            )
+            HardwareKey("BAR ▶", compact = true) { edit { it.copy(startBeats = it.startBeats + 4) } }
+        }
     }
 }
 

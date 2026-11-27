@@ -127,6 +127,7 @@ public:
     void setGlobal(int id, float v) { if (id >= 0 && id < G_COUNT) globals_[id].store(v); }
     float global(int id) const { return globals_[id].load(); }
     void triggerSfx(int pad) { sfx_.trigger(pad); }
+    void stopSfx() { sfx_.stopAll(); }
     /** DJ tape stop: playback brakes to a halt over ~0.8 s, then pauses. */
     void brake() { brakeSeq_.fetch_add(1); }
     void copyPerformanceFrom(const StemEngine& o);

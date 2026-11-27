@@ -61,6 +61,8 @@ enum DeckParam : int {
     D_RATIO,            // tempo ratio (beat-sync): 0.5..2
     D_PITCH,            // semitones -12..12
     D_KEYLOCK,          // 1 = keep original key when the tempo ratio != 1
+    D_TRIM_IN,          // seconds into the song where it starts playing
+    D_TRIM_OUT,         // seconds into the song where it stops (<= 0: to the end)
     D_COUNT
 };
 

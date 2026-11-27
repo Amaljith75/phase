@@ -26,8 +26,17 @@ public:
         if (pad >= 0 && pad < kPads) seq_[pad].fetch_add(1, std::memory_order_release);
     }
 
+    // Any thread: silences every playing pad.
+    void stopAll() { stopSeq_.fetch_add(1, std::memory_order_release); }
+
     // Audio thread: adds active voices into the stereo block.
     void mix(float* L, float* R, int n) {
+        const uint32_t st = stopSeq_.load(std::memory_order_acquire);
+        if (st != stopSeen_) {
+            stopSeen_ = st;
+            for (auto& v : voices_) v.pad = -1;
+            for (int p = 0; p < kPads; ++p) seen_[p] = seq_[p].load();
+        }
         for (int p = 0; p < kPads; ++p) {
             const uint32_t s = seq_[p].load(std::memory_order_acquire);
             if (s != seen_[p]) {
@@ -150,6 +159,8 @@ private:
     Voice voices_[8];
     std::atomic<uint32_t> seq_[kPads] = {};
     uint32_t seen_[kPads] = {};
+    std::atomic<uint32_t> stopSeq_{0};
+    uint32_t stopSeen_ = 0;
 };
 
 }  // namespace phase::dsp

@@ -24,10 +24,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -150,6 +152,9 @@ fun HomeScreen(
                         Text(x.name, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text("MASHUP", style = PhaseType.labelSmall, color = Color(0xFFFF4D9A))
                     }
+                    IconButton(onClick = { graph.deleteMashup(x.id) }) {
+                        Icon(Icons.Rounded.Delete, "Delete mashup", tint = PhaseColors.Steel)
+                    }
                 }
             }
             items(projects.take(5), key = { "m" + it.id }) { p ->
@@ -163,7 +168,9 @@ fun HomeScreen(
                         Text(p.name, style = PhaseType.body, color = PhaseColors.Chrome, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(t?.title ?: "Missing track", style = PhaseType.labelSmall, color = PhaseColors.Steel, maxLines = 1)
                     }
-                    Icon(Icons.Rounded.GraphicEq, null, tint = PhaseColors.Steel)
+                    IconButton(onClick = { graph.deleteProject(p.id) }) {
+                        Icon(Icons.Rounded.Delete, "Delete mix", tint = PhaseColors.Steel)
+                    }
                 }
             }
         }

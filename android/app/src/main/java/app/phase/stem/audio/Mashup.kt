@@ -20,7 +20,15 @@ data class DeckState(
     val startBeats: Int = 0,
     /** Fine alignment in milliseconds. */
     val nudgeMs: Float = 0f,
-)
+    /** Per-stem mute (bus order). */
+    val stemMuted: List<Boolean> = listOf(false, false, false, false),
+    /** Part of the song that plays: [trimIn, trimOut) seconds; trimOut 0 = to the end. */
+    val trimIn: Float = 0f,
+    val trimOut: Float = 0f,
+) {
+    /** Level the engine should use for a stem. */
+    fun level(bus: Int) = if (stemMuted[bus]) 0f else stemGains[bus]
+}
 
 data class MashupState(
     val id: String,
@@ -43,14 +51,15 @@ data class MashupState(
     /** Seconds on the timeline where the master beat grid starts. */
     val gridOffset: Float get() {
         val d0 = decks.firstOrNull() ?: return 0f
-        return d0.sourceBeatOffset / ratio(d0)
+        val period = 60f / (bpm ?: 120f)
+        return (((d0.sourceBeatOffset - d0.trimIn) / ratio(d0)) % period + period) % period
     }
 
     /** Where a deck starts so its beats land on the master grid. */
     fun offsetSeconds(index: Int): Float {
         val d = decks[index]
         val period = 60f / (bpm ?: 120f)
-        val align = if (index == 0 || d.sourceBpm == null) 0f else gridOffset - d.sourceBeatOffset / ratio(d)
+        val align = if (index == 0 || d.sourceBpm == null) 0f else gridOffset - (d.sourceBeatOffset - d.trimIn) / ratio(d)
         // Keep the aligned phase inside one beat so start-beat 0 means "together".
         val base = if (index == 0) 0f else ((align % period) + period) % period
         return base + d.startBeats * period + d.nudgeMs / 1000f
@@ -70,7 +79,9 @@ data class MashupState(
                     .put("stemGains", JSONArray(d.stemGains.map { it.toDouble() }))
                     .put("volume", d.volume.toDouble()).put("pitch", d.pitch.toDouble())
                     .put("keyLock", d.keyLock).put("sync", d.sync)
-                    .put("startBeats", d.startBeats).put("nudgeMs", d.nudgeMs.toDouble()),
+                    .put("startBeats", d.startBeats).put("nudgeMs", d.nudgeMs.toDouble())
+                    .put("stemMuted", JSONArray(d.stemMuted))
+                    .put("trimIn", d.trimIn.toDouble()).put("trimOut", d.trimOut.toDouble()),
             )
         }
         o.put("decks", arr)
@@ -98,6 +109,10 @@ data class MashupState(
                     sync = d.optBoolean("sync", true),
                     startBeats = d.optInt("startBeats", 0),
                     nudgeMs = d.optDouble("nudgeMs", 0.0).toFloat(),
+                    stemMuted = d.optJSONArray("stemMuted")?.takeIf { it.length() == 4 }?.let { a -> (0 until 4).map { a.getBoolean(it) } }
+                        ?: listOf(false, false, false, false),
+                    trimIn = d.optDouble("trimIn", 0.0).toFloat(),
+                    trimOut = d.optDouble("trimOut", 0.0).toFloat(),
                 )
             }
             MashupState(id, o.optString("name", "Mashup"), decks, if (o.has("masterBpm")) o.getDouble("masterBpm").toFloat() else null)

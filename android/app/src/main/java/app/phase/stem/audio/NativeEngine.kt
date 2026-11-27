@@ -68,6 +68,7 @@ object NativeEngine {
     external fun nSetDeckParam(deck: Int, id: Int, value: Float)
     external fun nSetGlobal(id: Int, value: Float)
     external fun nTriggerSfx(pad: Int)
+    external fun nStopSfx()
     /** DJ tape stop: brakes to a halt, then pauses. */
     external fun nBrake()
 

@@ -97,6 +97,12 @@ private fun PhaseRoot() {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val playerState by graph.player.state.collectAsState()
+    val appSettings by graph.settings.state.collectAsState()
+    LaunchedEffect(appSettings.uiAccent, appSettings.uiBackground) {
+        app.phase.stem.ui.theme.UiStyle.accent = Color(appSettings.uiAccent)
+        app.phase.stem.ui.theme.UiStyle.background =
+            runCatching { app.phase.stem.ui.theme.UiBackground.valueOf(appSettings.uiBackground) }.getOrDefault(app.phase.stem.ui.theme.UiBackground.CARBON)
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -165,6 +171,7 @@ private fun PhaseRoot() {
                     seedTrackId = entry.arguments?.getString("seed"),
                     onBack = { nav.popBackStack() },
                     onOpenPlayer = { if (!nav.popBackStack("player", false)) nav.navigate("player") },
+                    onEffects = { bus -> nav.navigate("effects/${bus.index}") },
                 )
             }
             composable("lyrics") { LyricsScreen(onBack = { nav.popBackStack() }) }
@@ -204,8 +211,8 @@ private fun BottomBar(route: String, onSelect: (String) -> Unit) {
                     Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).clickable { onSelect(r) }.padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Icon(icon, label, tint = if (sel) PhaseColors.Chrome else PhaseColors.Steel, modifier = Modifier.size(22.dp))
-                    Text(label, style = PhaseType.labelSmall, color = if (sel) PhaseColors.Chrome else PhaseColors.Steel)
+                    Icon(icon, label, tint = if (sel) PhaseColors.accent else PhaseColors.Steel, modifier = Modifier.size(22.dp))
+                    Text(label, style = PhaseType.labelSmall, color = if (sel) PhaseColors.accent else PhaseColors.Steel)
                 }
             }
     }
@@ -233,7 +240,7 @@ private fun MiniPlayer(onOpen: () -> Unit) {
         }
         LinearProgressIndicator(
             progress = { if (s.duration > 0) (s.position / s.duration).toFloat() else 0f },
-            modifier = Modifier.fillMaxWidth().height(2.dp), color = PhaseColors.Chrome, trackColor = Color.Transparent,
+            modifier = Modifier.fillMaxWidth().height(2.dp), color = PhaseColors.accent, trackColor = Color.Transparent,
         )
     }
 }

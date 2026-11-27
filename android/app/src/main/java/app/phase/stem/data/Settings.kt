@@ -33,6 +33,8 @@ data class AppSettings(
     val recordFormat: String = "wav",
     val onlineLyrics: Boolean = true,
     val keepScreenOn: Boolean = true,
+    val uiAccent: Long = 0xFFEDEDF2,
+    val uiBackground: String = "CARBON",
 ) {
     val onDevice: Boolean get() = separationEngine != "server"
 
@@ -66,7 +68,7 @@ class SettingsStore(context: Context) {
         fun gesture(key: String, def: GestureAction) =
             prefs.getString(key, null)?.let { runCatching { GestureAction.valueOf(it) }.getOrNull() } ?: def
         return AppSettings(
-            separationEngine = prefs.getString("separationEngine", d.separationEngine)!!,
+            separationEngine = "device", // the on-device engine is the only one exposed in the app
             serverUrl = prefs.getString("serverUrl", d.serverUrl)!!,
             serverToken = prefs.getString("serverToken", d.serverToken)!!,
             separationModel = prefs.getString("separationModel", d.separationModel)!!,
@@ -85,6 +87,8 @@ class SettingsStore(context: Context) {
             recordFormat = prefs.getString("recordFormat", d.recordFormat)!!,
             onlineLyrics = prefs.getBoolean("onlineLyrics", d.onlineLyrics),
             keepScreenOn = prefs.getBoolean("keepScreenOn", d.keepScreenOn),
+            uiAccent = prefs.getLong("uiAccent", d.uiAccent),
+            uiBackground = prefs.getString("uiBackground", d.uiBackground)!!,
         )
     }
 
@@ -108,6 +112,8 @@ class SettingsStore(context: Context) {
             .putString("recordFormat", s.recordFormat)
             .putBoolean("onlineLyrics", s.onlineLyrics)
             .putBoolean("keepScreenOn", s.keepScreenOn)
+            .putLong("uiAccent", s.uiAccent)
+            .putString("uiBackground", s.uiBackground)
             .apply()
     }
 }

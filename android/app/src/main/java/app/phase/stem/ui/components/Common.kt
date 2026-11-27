@@ -143,7 +143,7 @@ fun HardwareKey(
     text: String,
     modifier: Modifier = Modifier,
     active: Boolean = false,
-    color: Color = PhaseColors.Chrome,
+    color: Color = PhaseColors.accent,
     icon: ImageVector? = null,
     enabled: Boolean = true,
     compact: Boolean = false,
