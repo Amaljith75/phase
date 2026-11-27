@@ -190,7 +190,7 @@ int main() {
         CHECK(m[8] > 0.f, "master meter reports signal");
     }
 
-    std::printf("[export] offline render == live render; WAV + MP3 writers\n");
+    std::printf("[export] offline render == live render\n");
     {
         StemEngine live;
         live.prepare(sr);
@@ -223,14 +223,6 @@ int main() {
         CHECK(maxErr < 3e-4, "export matches playback (same DSP path)");
         CHECK(prog.load() == 1.f, "progress reaches 100%");
 
-        o.path = tmpDir() + "/phase_export.mp3";
-        o.format = "mp3";
-        o.bitrateKbps = 256;
-        ok = exportMix(live, o, prog, cancel, &err);
-        std::ifstream m(o.path, std::ios::binary | std::ios::ate);
-        long sz = (long)m.tellg();
-        std::printf("    mp3 size %ld bytes for 4 s @256k\n", sz);
-        CHECK(ok && sz > 100000 && sz < 160000, "MP3 export size consistent with bitrate");
     }
 
     std::printf("[recorder] live output captured to disk\n");

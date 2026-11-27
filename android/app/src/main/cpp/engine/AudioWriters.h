@@ -1,5 +1,6 @@
-// File writers for recorded/exported audio: 16-bit PCM WAV and MP3 (via the
-// bundled shine encoder). Not real-time safe — used from worker threads.
+// File writer for recorded/exported audio: 16-bit PCM WAV. Compressed
+// formats (M4A/AAC) are encoded from it by the platform codec. Not
+// real-time safe — used from worker threads.
 #pragma once
 
 #include <cstdint>
@@ -46,24 +47,6 @@ private:
     FILE* f_ = nullptr;
     int sampleRate_ = 44100;
     std::vector<int16_t> tmp_;
-};
-
-class Mp3Writer : public AudioFileWriter {
-public:
-    explicit Mp3Writer(int bitrateKbps) : bitrate_(bitrateKbps) {}
-    ~Mp3Writer() override { close(); }
-    bool open(const std::string& path, int sampleRate, std::string* err) override;
-    bool write(const float* interleaved, int frames) override;
-    bool close() override;
-    static bool supportsSampleRate(int sampleRate);
-
-private:
-    bool encodePending(bool flushPartial);
-    FILE* f_ = nullptr;
-    void* shine_ = nullptr;
-    int bitrate_ = 256;
-    int samplesPerPass_ = 1152;
-    std::vector<int16_t> pending_;  // interleaved
 };
 
 std::unique_ptr<AudioFileWriter> makeWriter(const std::string& format, int bitrateKbps);

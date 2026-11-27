@@ -36,7 +36,7 @@ the take.
 * **Effects per stem and on master**: reverb, delay, ping-pong echo, low/high-pass, distortion, chorus, pitch shift, 3-band EQ, volume, pan — all real-time, with animated knobs.
 * **One-tap modes**: all · no vocals (instrumental/karaoke) · acapella · rhythm.
 * **Lyrics**: synced LRC view with highlighted, auto-scrolling lines, tap-to-seek, LRC import, raw editor, tap-to-sync timestamps, offset nudging, online lookup (LRCLIB).
-* **Record** the live master output (WAV/MP3) and **export** the mix offline (WAV/MP3) through the identical DSP path; share or save to Music.
+* **Record** the live master output (WAV/M4A) and **export** the mix offline (WAV/M4A) through the identical DSP path; share or save to Music.
 * **Projects & presets**: every mix autosaves per track; save named projects and reusable presets.
 * **Library**: recent, imported, separated, favourites, search, delete, stem-cache management.
 * BPM detection, tap tempo, waveform scrubber, stem colour customisation, haptics, background playback with lock-screen controls.
@@ -80,8 +80,9 @@ SHA-256 checksums.
 
 ## Licences
 
-No licence has been chosen for the Phase code yet — add a `LICENSE` file
-before distributing. Third-party components keep their own licences: shine
-MP3 encoder (LGPL-2, full source in `android/app/src/main/cpp/third_party/shine`),
-Oboe (Apache-2.0, via Maven), Demucs (MIT, used by the server; model weights
-are downloaded from Meta).
+Phase is proprietary software. All rights reserved.
+
+Bundled third-party components keep their own permissive licences (MIT /
+Apache-2.0: Demucs model, ONNX Runtime, Oboe, AndroidX, Kotlin, OkHttp); their
+notices ship in the app under Settings → About → Open-source licences
+(`android/app/src/main/assets/licenses.txt`).

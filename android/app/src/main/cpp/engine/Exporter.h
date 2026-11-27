@@ -12,7 +12,7 @@ namespace phase {
 
 struct ExportOptions {
     std::string path;
-    std::string format = "wav";  // "wav" | "mp3"
+    std::string format = "wav";  // always WAV; see AacEncoder.kt for M4A
     int bitrateKbps = 256;
     double startSec = 0;         // range in track time
     double endSec = -1;          // <0 = to the end

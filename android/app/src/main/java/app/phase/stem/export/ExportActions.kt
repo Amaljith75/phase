@@ -15,7 +15,11 @@ import java.io.IOException
 
 /** Sharing and saving rendered mixes / recordings. */
 object ExportActions {
-    fun mimeOf(format: String) = if (format.equals("mp3", true)) "audio/mpeg" else "audio/wav"
+    fun mimeOf(format: String) = when (format.lowercase()) {
+        "m4a" -> "audio/mp4"
+        "mp3" -> "audio/mpeg"
+        else -> "audio/wav"
+    }
 
     fun share(context: Context, e: ExportEntity) {
         val f = File(e.path)

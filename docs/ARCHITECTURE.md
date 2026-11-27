@@ -138,7 +138,7 @@ The self-hosted server remains available as an advanced option
   CoreAudio render callback and `AVAudioSession` (`.playback`).
 * iOS has no system file picker restrictions issue (UIDocumentPicker), but
   background audio requires the `audio` background mode.
-* MP3 export uses the bundled shine encoder on both platforms.
+* Compressed export (M4A/AAC) uses the platform encoder; the engine itself only writes WAV.
 
 ## 5. What is native vs. Kotlin
 

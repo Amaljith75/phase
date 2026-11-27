@@ -150,7 +150,8 @@ private fun PhaseRoot() {
                     onOpenProject = { p -> graph.player.open(p.trackId, p); nav.navigate("player") },
                 )
             }
-            composable("settings") { SettingsScreen(pad) }
+            composable("settings") { SettingsScreen(pad, onLicenses = { nav.navigate("licenses") }) }
+            composable("licenses") { app.phase.stem.ui.about.LicensesScreen(onBack = { nav.popBackStack() }) }
             composable("player") {
                 PlayerScreen(
                     onBack = { nav.popBackStack() },

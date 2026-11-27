@@ -375,7 +375,7 @@ private fun ExportDialog(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HardwareKey("WAV", active = format == "wav", enabled = !busy) { format = "wav" }
-                    HardwareKey("MP3 ${graph.settings.current.mp3Bitrate}k", active = format == "mp3", enabled = !busy) { format = "mp3" }
+                    HardwareKey("M4A ${graph.settings.current.mp3Bitrate}k", active = format == "m4a", enabled = !busy) { format = "m4a" }
                 }
                 if (mix.loopOn) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {

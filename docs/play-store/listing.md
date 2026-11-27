@@ -39,12 +39,14 @@ Line-by-line highlighted lyrics with auto-scroll. Import .lrc files, look
 lyrics up online, edit them, or tap along to time-sync your own.
 
 • RECORD & EXPORT
-Record your live performance or export the full remix as WAV or MP3 —
+Record your live performance or export the full remix as WAV or M4A —
 rendered with exactly the effects you hear. Save projects and mix presets,
 share your remix anywhere.
 
 Supports MP3, WAV, FLAC, M4A/AAC and OGG.
 Low-latency native audio engine. No ads. No tracking.
+
+Use only music you have the rights to remix and share.
 
 Separation takes a few minutes per song on a recent phone and continues in
 the background. Requires 4 GB RAM or more (6 GB+ recommended).

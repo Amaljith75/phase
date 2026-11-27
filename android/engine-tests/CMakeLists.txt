@@ -7,10 +7,6 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(CPP ${CMAKE_CURRENT_SOURCE_DIR}/../app/src/main/cpp)
-file(GLOB SHINE_SRC ${CPP}/third_party/shine/*.c)
-add_library(shine STATIC ${SHINE_SRC})
-target_include_directories(shine PUBLIC ${CPP}/third_party/shine)
-target_compile_options(shine PRIVATE -w)
 
 add_executable(engine_test
   engine_test.cpp
@@ -21,4 +17,4 @@ add_executable(engine_test
   ${CPP}/engine/Exporter.cpp)
 target_include_directories(engine_test PRIVATE ${CPP}/engine)
 target_compile_options(engine_test PRIVATE -Wall -Wextra -O2)
-target_link_libraries(engine_test shine pthread m)
+target_link_libraries(engine_test pthread m)

@@ -18,10 +18,6 @@ bool exportMix(const StemEngine& live, const ExportOptions& opt, std::atomic<flo
         if (err) *err = "no track loaded";
         return false;
     }
-    if (opt.format == "mp3" && !Mp3Writer::supportsSampleRate(rate)) {
-        if (err) *err = "MP3 export does not support " + std::to_string(rate) + " Hz";
-        return false;
-    }
 
     auto engine = std::make_unique<StemEngine>();
     engine->prepare(rate);  // render at the source rate: no resampling at speed 1

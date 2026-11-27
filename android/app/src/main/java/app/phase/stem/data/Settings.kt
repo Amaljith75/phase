@@ -82,9 +82,9 @@ class SettingsStore(context: Context) {
             verticalVolume = prefs.getBoolean("verticalVolume", d.verticalVolume),
             stemColors = prefs.getString("stemColors", null)?.split(",")?.mapNotNull { it.toLongOrNull() }
                 ?.takeIf { it.size == 4 } ?: d.stemColors,
-            exportFormat = prefs.getString("exportFormat", d.exportFormat)!!,
+            exportFormat = prefs.getString("exportFormat", d.exportFormat)!!.let { if (it == "mp3") "m4a" else it },
             mp3Bitrate = prefs.getInt("mp3Bitrate", d.mp3Bitrate),
-            recordFormat = prefs.getString("recordFormat", d.recordFormat)!!,
+            recordFormat = prefs.getString("recordFormat", d.recordFormat)!!.let { if (it == "mp3") "m4a" else it },
             onlineLyrics = prefs.getBoolean("onlineLyrics", d.onlineLyrics),
             keepScreenOn = prefs.getBoolean("keepScreenOn", d.keepScreenOn),
             uiAccent = prefs.getLong("uiAccent", d.uiAccent),

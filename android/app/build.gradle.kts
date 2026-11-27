@@ -5,9 +5,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-// Release signing: CI provides PHASE_KEYSTORE_* (from repository secrets). If
-// absent, the build falls back to the public sideload key in keystore/ so the
-// published APK can be updated in place by later releases. See README.
+// Release signing: your private upload key via PHASE_KEYSTORE_* (CI reads
+// them from repository secrets; locally, from environment variables). Without
+// them, release builds fall back to the test key in keystore/ — fine for
+// testing on your own phone, never for Google Play.
 val ksFile = System.getenv("PHASE_KEYSTORE_FILE")?.let { file(it) } ?: file("../keystore/phase-sideload.jks")
 val ksPass = System.getenv("PHASE_KEYSTORE_PASSWORD") ?: "phase-sideload"
 val ksAlias = System.getenv("PHASE_KEY_ALIAS") ?: "phase"

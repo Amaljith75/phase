@@ -69,3 +69,76 @@ signing key; your `phase-upload.jks` is only the upload key.
   `versionName` from the tag.
 - Test the internal-testing build on a real phone: import, wait for AI
   separation, swipe the pads, effects, lyrics, record, export.
+
+## 5. Which phones can install it
+
+* **Android 8.0 (API 26) or newer** — about 97% of active Android devices.
+* All CPU types that matter: arm64-v8a (practically every phone since
+  2017), armeabi-v7a (old 32-bit phones), x86_64 (Chromebooks/emulators).
+* Phones and tablets (the player adapts to landscape tablets).
+* **AI separation needs 4 GB RAM or more** (6 GB+ recommended). Phones with
+  less can install and play songs, but the app refuses to separate. Because
+  this is a paid app, exclude low-memory devices so nobody buys something
+  that can't separate: Play Console → **Release → Device catalog → Exclude
+  devices by rule → RAM < 4 GB**.
+* Speed depends on the phone's CPU; a 4-minute song takes a few minutes on a
+  recent phone.
+
+## 6. Protecting your code, your app and your income
+
+**Your GitHub repository is the biggest risk.** If it is public, anyone can
+download the full source. Make it private: GitHub → repository → **Settings
+→ General → Danger Zone → Change visibility → Make private**. Releases of a
+private repository are private too. Also:
+
+* Turn on **two-factor authentication** for your GitHub account.
+* Delete old public releases you don't want downloadable (Releases → each
+  release → Delete). Anything that was public may already have been copied.
+* Never commit your upload keystore or its passwords; keep them only in
+  GitHub **Secrets** and in a safe offline backup (password manager +
+  USB stick). If you lose the upload key, Google can reset it, but it takes
+  days.
+
+**What a determined person can and can't get from the APK.** Every Android
+app can be downloaded and unpacked; no app is impossible to reverse.
+Phase makes it as hard as is practical:
+
+* Kotlin code is minified and obfuscated (R8): class/method names are
+  scrambled, source-file names and line numbers removed, debug logging
+  stripped.
+* The audio engine is compiled C++ with all symbols stripped — the hardest
+  part of the app to reverse.
+* Your source code, comments, build scripts, tests and Git history are
+  **not** in the APK. Only the repository holds them.
+* The AI model file is extractable from any APK; it is Meta's openly
+  published Demucs model, not your secret.
+
+**Piracy.** For a paid app without login, turn on Play Console → **Release
+→ App integrity → Automatic protection**. Google then adds anti-tamper
+checks and blocks copies not installed from Play (sideloaded APKs) from
+running. Keep it on for every release.
+
+## 7. Shipping updates
+
+1. Make changes, push, then run **Actions → Build & release → Run workflow**
+   with a new `release_tag` (e.g. `v1.0.1`).
+2. Download `Phase-<version>.aab` from the release (or the workflow
+   artifacts) and upload it in Play Console → **Production → Create new
+   release**. Users get the update automatically.
+
+`versionCode` increases automatically with every CI run, so Play always
+accepts the new bundle. Updates must be signed with the **same upload key**
+every time — that is why the key lives in GitHub Secrets.
+
+## 8. Licences and legal
+
+* All bundled components are under permissive licences (MIT, Apache-2.0)
+  that allow paid, closed-source apps; their notices are shown in the app
+  (Settings → About → Open-source licences). The LGPL MP3 encoder used in
+  early versions has been removed; exports are WAV or M4A (AAC).
+* Demucs' code and weights are MIT-licensed, but the model was trained on
+  research datasets (MUSDB18-HQ) that carry their own terms. If you plan
+  significant commercial sales, get a quick opinion from a lawyer on using
+  the pretrained weights commercially.
+* Users process their own music files; mention in the listing that users
+  are responsible for rights to the music they remix.

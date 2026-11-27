@@ -495,8 +495,9 @@ class PlayerController(
         val t = _state.value.track ?: return
         if (!ensureOutput()) return
         val fmt = settings.current.recordFormat
-        val f = outName(t, "live", fmt)
-        if (NativeEngine.nStartRecording(f.absolutePath, fmt, settings.current.mp3Bitrate)) {
+        val f = outName(t, "live", "wav") // engine records WAV; M4A is encoded on stop
+        if (NativeEngine.nStartRecording(f.absolutePath, "wav", 0)) {
+            pendingFormat = fmt
             _state.update { it.copy(recording = true, message = "Recording live mix") }
             pendingRecording = f
             if (!NativeEngine.nIsPlaying()) setPlaying(true)
@@ -506,6 +507,18 @@ class PlayerController(
     }
 
     private var pendingRecording: File? = null
+    private var pendingFormat = "wav"
+
+    /** Engine output is WAV; encode to M4A (AAC) when asked. Falls back to WAV on failure. */
+    private fun finishFormat(wav: File, format: String): File {
+        if (format != "m4a") return wav
+        val m4a = File(wav.parentFile, wav.nameWithoutExtension + ".m4a")
+        return runCatching {
+            app.phase.stem.export.AacEncoder.wavToM4a(wav, m4a, settings.current.mp3Bitrate)
+            wav.delete()
+            m4a
+        }.getOrElse { wav }
+    }
 
     fun stopRecording() {
         val secs = NativeEngine.nStopRecording()
@@ -517,11 +530,14 @@ class PlayerController(
             f.delete()
             return
         }
+        val title = "${_state.value.title ?: "Recording"} · live take"
+        val fmt = pendingFormat
         scope.launch(Dispatchers.IO) {
+            val out = finishFormat(f, fmt)
             db.exports().insert(
                 ExportEntity(
-                    UUID.randomUUID().toString(), t?.id, "${_state.value.title ?: "Recording"} · live take", f.absolutePath,
-                    f.extension, "recording", (secs * 1000).toLong(), f.length(), System.currentTimeMillis(),
+                    UUID.randomUUID().toString(), t?.id, title, out.absolutePath,
+                    out.extension, "recording", (secs * 1000).toLong(), out.length(), System.currentTimeMillis(),
                 ),
             )
         }
@@ -533,7 +549,7 @@ class PlayerController(
         val t = _state.value.track ?: return
         if (_state.value.exportProgress != null) return
         val m = _mix.value
-        val f = outName(t, "mix", format)
+        val f = outName(t, "mix", "wav")
         val (a, b) = if (loopOnly && m.loopOn) m.loopA to m.loopB else 0.0 to -1.0
         _state.update { it.copy(exportProgress = 0f) }
         scope.launch {
@@ -544,8 +560,9 @@ class PlayerController(
                 }
             }
             val ok = withContext(Dispatchers.Default) {
-                NativeEngine.nExport(f.absolutePath, format, settings.current.mp3Bitrate, a, b, true)
+                NativeEngine.nExport(f.absolutePath, "wav", 0, a, b, true)
             }
+            val outFile = if (ok) withContext(Dispatchers.IO) { finishFormat(f, format) } else f
             poll.cancel()
             var entity: ExportEntity? = null
             if (ok) {
@@ -553,10 +570,10 @@ class PlayerController(
                 entity = ExportEntity(
                     UUID.randomUUID().toString(), t.id,
                     _state.value.mashup?.let { "${it.name} · mashup" } ?: "${t.title} · ${_state.value.projectName ?: "remix"}",
-                    f.absolutePath, format, "export", durMs, f.length(), System.currentTimeMillis(),
+                    outFile.absolutePath, outFile.extension, "export", durMs, outFile.length(), System.currentTimeMillis(),
                 )
                 withContext(Dispatchers.IO) { db.exports().insert(entity) }
-                _state.update { it.copy(exportProgress = null, message = "Exported ${f.name}") }
+                _state.update { it.copy(exportProgress = null, message = "Exported ${outFile.name}") }
             } else {
                 val err = NativeEngine.nLastError()
                 _state.update { it.copy(exportProgress = null, error = if (err == "cancelled") null else "Export failed: $err") }

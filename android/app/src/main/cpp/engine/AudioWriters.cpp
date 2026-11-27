@@ -2,7 +2,6 @@
 
 #include <cstring>
 
-#include "layer3.h"
 
 namespace phase {
 
@@ -61,76 +60,9 @@ bool WavWriter::close() {
     return ok;
 }
 
-bool Mp3Writer::supportsSampleRate(int sr) { return shine_find_samplerate_index(sr) >= 0; }
-
-bool Mp3Writer::open(const std::string& path, int sampleRate, std::string* err) {
-    close();
-    if (shine_check_config(sampleRate, bitrate_) < 0) {
-        if (err) *err = "MP3: unsupported sample rate/bitrate " + std::to_string(sampleRate) + "/" + std::to_string(bitrate_);
-        return false;
-    }
-    shine_config_t cfg;
-    shine_set_config_mpeg_defaults(&cfg.mpeg);
-    cfg.wave.channels = 2;
-    cfg.wave.samplerate = sampleRate;
-    cfg.mpeg.mode = SHINE_JOINT_STEREO;
-    cfg.mpeg.bitrate = bitrate_;
-    shine_t s = shine_initialise(&cfg);
-    if (!s) {
-        if (err) *err = "MP3 encoder init failed";
-        return false;
-    }
-    f_ = fopen(path.c_str(), "wb");
-    if (!f_) {
-        shine_close(s);
-        if (err) *err = "cannot create " + path;
-        return false;
-    }
-    shine_ = s;
-    samplesPerPass_ = shine_samples_per_pass(s);
-    pending_.clear();
-    pending_.reserve((size_t)samplesPerPass_ * 4);
-    frames_ = 0;
-    return true;
-}
-
-bool Mp3Writer::encodePending(bool flushPartial) {
-    auto s = static_cast<shine_t>(shine_);
-    const size_t passLen = (size_t)samplesPerPass_ * 2;
-    size_t off = 0;
-    while (pending_.size() - off >= passLen || (flushPartial && pending_.size() > off)) {
-        if (pending_.size() - off < passLen) pending_.resize(off + passLen, 0);  // zero-pad last pass
-        int written = 0;
-        unsigned char* data = shine_encode_buffer_interleaved(s, pending_.data() + off, &written);
-        if (written > 0 && fwrite(data, 1, (size_t)written, f_) != (size_t)written) return false;
-        off += passLen;
-    }
-    pending_.erase(pending_.begin(), pending_.begin() + (long)off);
-    return true;
-}
-
-bool Mp3Writer::write(const float* in, int frames) {
-    if (!f_) return false;
-    for (int i = 0; i < frames * 2; ++i) pending_.push_back(toInt16(in[i]));
-    frames_ += frames;
-    return encodePending(false);
-}
-
-bool Mp3Writer::close() {
-    if (!f_) return true;
-    bool ok = encodePending(true);
-    int written = 0;
-    unsigned char* data = shine_flush(static_cast<shine_t>(shine_), &written);
-    if (written > 0) ok = ok && fwrite(data, 1, (size_t)written, f_) == (size_t)written;
-    shine_close(static_cast<shine_t>(shine_));
-    shine_ = nullptr;
-    ok = (fclose(f_) == 0) && ok;
-    f_ = nullptr;
-    return ok;
-}
-
 std::unique_ptr<AudioFileWriter> makeWriter(const std::string& format, int bitrateKbps) {
-    if (format == "mp3") return std::make_unique<Mp3Writer>(bitrateKbps);
+    (void)format;  // WAV only; compressed formats are encoded from WAV by the platform
+    (void)bitrateKbps;
     return std::make_unique<WavWriter>();
 }
 

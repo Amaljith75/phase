@@ -116,7 +116,7 @@ jobs:
             echo "PHASE_KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
             echo "PHASE_KEY_PASSWORD=$KEY_PASSWORD" >> $GITHUB_ENV
           else
-            echo "::warning::No signing secrets: using the public sideload key. Do not upload this AAB to Google Play."
+            echo "::warning::No upload-key secrets: APKs use the test key and no Play bundle (.aab) is built."
           fi
       - name: Tests
         working-directory: android
@@ -127,7 +127,8 @@ jobs:
         working-directory: android
         run: |
           ./gradlew --no-daemon :app:assembleRelease -PabiSplits=true
-          ./gradlew --no-daemon :app:bundleRelease
+          # The Play bundle is only produced when signed with YOUR upload key.
+          if [ -n "${PHASE_KEYSTORE_FILE:-}" ]; then ./gradlew --no-daemon :app:bundleRelease; fi
       - name: Collect
         run: |
           mkdir -p dist
@@ -135,7 +136,7 @@ jobs:
           A=android/app/build/outputs
           cp $A/apk/release/app-arm64-v8a-release.apk   dist/Phase-$V-arm64-v8a.apk
           cp $A/apk/release/app-armeabi-v7a-release.apk dist/Phase-$V-armeabi-v7a.apk
-          cp $A/bundle/release/app-release.aab          dist/Phase-$V.aab
+          if [ -f $A/bundle/release/app-release.aab ]; then cp $A/bundle/release/app-release.aab dist/Phase-$V.aab; fi
           (cd dist && sha256sum * > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:

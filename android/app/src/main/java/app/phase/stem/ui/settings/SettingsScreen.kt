@@ -71,7 +71,7 @@ private val DEFAULT_MODELS = listOf(
 )
 
 @Composable
-fun SettingsScreen(contentPadding: PaddingValues) {
+fun SettingsScreen(contentPadding: PaddingValues, onLicenses: () -> Unit = {}) {
     val graph = LocalGraph.current
     val s = appSettings()
     val store = graph.settings
@@ -123,9 +123,9 @@ fun SettingsScreen(contentPadding: PaddingValues) {
                     store.update { it.copy(lowLatency = v) }
                     graph.player.restartOutput()
                 }
-                Choice("Export format", s.exportFormat, listOf("wav" to "WAV 16-bit (lossless)", "mp3" to "MP3")) { v -> store.update { it.copy(exportFormat = v) } }
-                Choice("MP3 bitrate", s.mp3Bitrate.toString(), listOf("128", "192", "256", "320").map { it to "$it kbps" }) { v -> store.update { it.copy(mp3Bitrate = v.toInt()) } }
-                Choice("Live recording format", s.recordFormat, listOf("wav" to "WAV", "mp3" to "MP3")) { v -> store.update { it.copy(recordFormat = v) } }
+                Choice("Export format", s.exportFormat, listOf("wav" to "WAV (lossless)", "m4a" to "M4A / AAC")) { v -> store.update { it.copy(exportFormat = v) } }
+                Choice("M4A quality", s.mp3Bitrate.toString(), listOf("128", "192", "256", "320").map { it to "$it kbps" }) { v -> store.update { it.copy(mp3Bitrate = v.toInt()) } }
+                Choice("Live recording format", s.recordFormat, listOf("wav" to "WAV", "m4a" to "M4A / AAC")) { v -> store.update { it.copy(recordFormat = v) } }
             }
         }
         // -------------------------------------------------- gestures
@@ -226,6 +226,8 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         item {
             Section("About") {
                 Text("Phase ${BuildConfig.VERSION_NAME}", style = PhaseType.body, color = PhaseColors.Chrome)
+                Spacer(Modifier.height(10.dp))
+                HardwareKey("OPEN-SOURCE LICENCES", onClick = onLicenses)
             }
         }
     }
